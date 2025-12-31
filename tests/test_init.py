@@ -34,12 +34,8 @@ async def test_async_setup_entry(
         mock_coordinator.async_connect = AsyncMock()
         mock_coordinator.data = {"playing": False}
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ):
-            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
         assert DOMAIN in hass.data
         assert mock_config_entry.entry_id in hass.data[DOMAIN]
@@ -66,11 +62,7 @@ async def test_async_setup_entry_connection_error(
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock(side_effect=Exception("Connection failed"))
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ):
-            assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
 
 
 async def test_async_unload_entry(
@@ -88,21 +80,14 @@ async def test_async_unload_entry(
         mock_coordinator.async_disconnect = AsyncMock()
         mock_coordinator.data = {"playing": False}
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ), patch(
-            "custom_components.pianobar.async_unload_entry",
-            wraps=__import__("custom_components.pianobar").async_unload_entry,
-        ):
-            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-            
-            assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-            
-            mock_coordinator.async_disconnect.assert_called_once()
-            assert mock_config_entry.entry_id not in hass.data[DOMAIN]
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        mock_coordinator.async_disconnect.assert_called_once()
+        assert mock_config_entry.entry_id not in hass.data[DOMAIN]
 
 
 async def test_service_love_song(
@@ -120,21 +105,17 @@ async def test_service_love_song(
         mock_coordinator.send_action = AsyncMock()
         mock_coordinator.data = {"playing": False}
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ):
-            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-            
-            await hass.services.async_call(
-                DOMAIN,
-                SERVICE_LOVE_SONG,
-                {},
-                blocking=True,
-            )
-            
-            mock_coordinator.send_action.assert_called_once_with("song.love")
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_LOVE_SONG,
+            {},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_action.assert_called_once_with("song.love")
 
 
 async def test_service_ban_song(
@@ -152,21 +133,17 @@ async def test_service_ban_song(
         mock_coordinator.send_action = AsyncMock()
         mock_coordinator.data = {"playing": False}
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ):
-            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-            
-            await hass.services.async_call(
-                DOMAIN,
-                SERVICE_BAN_SONG,
-                {},
-                blocking=True,
-            )
-            
-            mock_coordinator.send_action.assert_called_once_with("song.ban")
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_BAN_SONG,
+            {},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_action.assert_called_once_with("song.ban")
 
 
 async def test_service_create_station(
@@ -187,25 +164,21 @@ async def test_service_create_station(
             "song": {"trackToken": "test_token"},
         }
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ):
-            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-            
-            await hass.services.async_call(
-                DOMAIN,
-                SERVICE_CREATE_STATION,
-                {"type": "artist"},
-                blocking=True,
-            )
-            
-            mock_coordinator.send_event.assert_called_once()
-            call_args = mock_coordinator.send_event.call_args[0]
-            assert call_args[0] == "station.createFrom"
-            assert call_args[1]["trackToken"] == "test_token"
-            assert call_args[1]["type"] == "artist"
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CREATE_STATION,
+            {"type": "artist"},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_event.assert_called_once()
+        call_args = mock_coordinator.send_event.call_args[0]
+        assert call_args[0] == "station.createFrom"
+        assert call_args[1]["trackToken"] == "test_token"
+        assert call_args[1]["type"] == "artist"
 
 
 async def test_service_rename_station(
@@ -223,25 +196,21 @@ async def test_service_rename_station(
         mock_coordinator.send_event = AsyncMock()
         mock_coordinator.data = {"playing": False}
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ):
-            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-            
-            await hass.services.async_call(
-                DOMAIN,
-                SERVICE_RENAME_STATION,
-                {"station_id": "123", "name": "New Name"},
-                blocking=True,
-            )
-            
-            mock_coordinator.send_event.assert_called_once()
-            call_args = mock_coordinator.send_event.call_args[0]
-            assert call_args[0] == "station.rename"
-            assert call_args[1]["stationId"] == "123"
-            assert call_args[1]["name"] == "New Name"
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RENAME_STATION,
+            {"station_id": "123", "name": "New Name"},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_event.assert_called_once()
+        call_args = mock_coordinator.send_event.call_args[0]
+        assert call_args[0] == "station.rename"
+        assert call_args[1]["stationId"] == "123"
+        assert call_args[1]["name"] == "New Name"
 
 
 async def test_service_delete_station(
@@ -259,22 +228,18 @@ async def test_service_delete_station(
         mock_coordinator.send_event = AsyncMock()
         mock_coordinator.data = {"playing": False}
         
-        with patch(
-            "custom_components.pianobar.async_setup_entry",
-            wraps=__import__("custom_components.pianobar").async_setup_entry,
-        ):
-            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
-            
-            await hass.services.async_call(
-                DOMAIN,
-                SERVICE_DELETE_STATION,
-                {"station_id": "123"},
-                blocking=True,
-            )
-            
-            mock_coordinator.send_event.assert_called_once()
-            call_args = mock_coordinator.send_event.call_args[0]
-            assert call_args[0] == "station.delete"
-            assert call_args[1] == "123"
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_DELETE_STATION,
+            {"station_id": "123"},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_event.assert_called_once()
+        call_args = mock_coordinator.send_event.call_args[0]
+        assert call_args[0] == "station.delete"
+        assert call_args[1] == "123"
 

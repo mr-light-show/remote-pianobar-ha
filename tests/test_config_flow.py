@@ -105,21 +105,23 @@ async def test_validate_input_success(hass: HomeAssistant) -> None:
     from custom_components.pianobar.config_flow import validate_input
 
     # Create a proper async context manager mock for ws_connect
-    mock_ws = AsyncMock()
+    mock_ws = MagicMock()
     mock_ws.close = AsyncMock()
     
-    mock_ws_context = AsyncMock()
-    mock_ws_context.__aenter__.return_value = mock_ws
-    mock_ws_context.__aexit__.return_value = None
+    # ws_connect returns an async context manager
+    mock_ws_cm = MagicMock()
+    mock_ws_cm.__aenter__ = AsyncMock(return_value=mock_ws)
+    mock_ws_cm.__aexit__ = AsyncMock(return_value=None)
     
-    mock_session = AsyncMock()
-    mock_session.ws_connect.return_value = mock_ws_context
+    # session is an async context manager
+    mock_session = MagicMock()
+    mock_session.ws_connect = MagicMock(return_value=mock_ws_cm)
     
-    mock_session_context = MagicMock()
-    mock_session_context.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+    mock_session_cm = MagicMock()
+    mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session_cm.__aexit__ = AsyncMock(return_value=None)
     
-    with patch("aiohttp.ClientSession", return_value=mock_session_context):
+    with patch("custom_components.pianobar.config_flow.aiohttp.ClientSession", return_value=mock_session_cm):
         result = await validate_input(
             hass,
             {CONF_HOST: "127.0.0.1", CONF_PORT: 3000},
@@ -132,14 +134,17 @@ async def test_validate_input_timeout(hass: HomeAssistant) -> None:
     """Test input validation with timeout."""
     from custom_components.pianobar.config_flow import CannotConnect, validate_input
     
-    mock_session = AsyncMock()
-    mock_session.ws_connect.side_effect = TimeoutError()
+    import asyncio
     
-    mock_session_context = MagicMock()
-    mock_session_context.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+    # session is an async context manager
+    mock_session = MagicMock()
+    mock_session.ws_connect = MagicMock(side_effect=asyncio.TimeoutError())
     
-    with patch("aiohttp.ClientSession", return_value=mock_session_context):
+    mock_session_cm = MagicMock()
+    mock_session_cm.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session_cm.__aexit__ = AsyncMock(return_value=None)
+    
+    with patch("custom_components.pianobar.config_flow.aiohttp.ClientSession", return_value=mock_session_cm):
         with pytest.raises(CannotConnect):
             await validate_input(
                 hass,
