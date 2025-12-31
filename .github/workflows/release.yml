@@ -16,6 +16,7 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+          ignore: brands
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
