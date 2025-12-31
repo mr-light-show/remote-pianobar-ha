@@ -1,9 +1,9 @@
 # Pianobar for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub Release](https://img.shields.io/github/release/mr-light-show/pianobar-ha.svg)](https://github.com/mr-light-show/pianobar-ha/releases)
-[![Test](https://github.com/mr-light-show/pianobar-ha/workflows/Test/badge.svg)](https://github.com/mr-light-show/pianobar-ha/actions)
-[![codecov](https://codecov.io/gh/mr-light-show/pianobar-ha/branch/main/graph/badge.svg)](https://codecov.io/gh/mr-light-show/pianobar-ha)
+[![GitHub Release](https://img.shields.io/github/release/mr-light-show/remote-pianobar-ha.svg)](https://github.com/mr-light-show/remote-pianobar-ha/releases)
+[![Test](https://github.com/mr-light-show/remote-pianobar-ha/workflows/Test/badge.svg)](https://github.com/mr-light-show/remote-pianobar-ha/actions)
+[![codecov](https://codecov.io/gh/mr-light-show/remote-pianobar-ha/branch/main/graph/badge.svg)](https://codecov.io/gh/mr-light-show/remote-pianobar-ha)
 
 A Home Assistant integration for controlling [remote-pianobar](https://github.com/mr-light-show/remote-pianobar) - a WebSocket-enabled Pandora client.
 
