@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
-import math
 from typing import Any
 
 from homeassistant.components.media_player import (
@@ -19,12 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .browse_media import async_browse_media_internal
-from .const import (
-    DOMAIN,
-    MEDIA_TYPE_STATION,
-    VOLUME_MAX_DB_DEFAULT,
-    VOLUME_MIN_DB,
-)
+from .const import DOMAIN, MEDIA_TYPE_STATION
 from .coordinator import PianobarCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -85,9 +79,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
     @property
     def volume_level(self) -> float | None:
         """Volume level of the media player (0..1)."""
-        db_volume = self.coordinator.data.get("volume", 0)
-        max_gain = self.coordinator.data.get("maxGain", VOLUME_MAX_DB_DEFAULT)
-        return self._db_to_volume_level(db_volume, max_gain)
+        return self.coordinator.data.get("volume", 0)
 
     @property
     def source(self) -> str | None:
@@ -185,15 +177,10 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
-        # Convert volume level to percentage (0-100)
-        volume_percent = self._volume_level_to_percent(
-            volume,
-            self.coordinator.data.get("maxGain", VOLUME_MAX_DB_DEFAULT),
-        )
-        
+        # volume.set API expects 0-100 percentage
         await self.coordinator.send_action_with_params(
             "volume.set",
-            {"volume": volume_percent}
+            {"volume": volume * 100}
         )
 
     async def async_volume_up(self) -> None:
@@ -244,46 +231,6 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
             
         # Try to find by name
         return next((s for s in stations if s["name"] == station_id_or_name), None)
-
-    @staticmethod
-    def _db_to_volume_level(db: float, max_gain: float = VOLUME_MAX_DB_DEFAULT) -> float:
-        """Convert dB to volume level (0.0-1.0) using perceptual curve."""
-        if db <= 0:
-            # -40 to 0 dB maps to 0-50%
-            normalized = 1 - math.sqrt(abs(db) / abs(VOLUME_MIN_DB))
-            slider_percent = normalized * 50
-        else:
-            # 0 to maxGain maps to 50-100%
-            normalized = db / max_gain
-            slider_percent = 50 + normalized * 50
-            
-        return slider_percent / 100.0
-
-    @staticmethod
-    def _volume_level_to_percent(
-        volume_level: float,
-        max_gain: float = VOLUME_MAX_DB_DEFAULT,
-    ) -> float:
-        """Convert volume level (0.0-1.0) to percentage for API (0-100)."""
-        # This is used directly by the API, which expects 0-100
-        return volume_level * 100.0
-
-    @staticmethod
-    def _volume_level_to_db(
-        volume_level: float,
-        max_gain: float = VOLUME_MAX_DB_DEFAULT,
-    ) -> float:
-        """Convert volume level (0.0-1.0) to dB."""
-        slider_percent = volume_level * 100
-        
-        if slider_percent <= 50:
-            # Bottom half: -40 to 0 dB (quadratic curve)
-            normalized = slider_percent / 50
-            return VOLUME_MIN_DB * (1 - normalized) ** 2
-        else:
-            # Top half: 0 to maxGain dB (linear)
-            normalized = (slider_percent - 50) / 50
-            return max_gain * normalized
 
     @callback
     def _handle_coordinator_update(self) -> None:
