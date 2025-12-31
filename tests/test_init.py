@@ -28,7 +28,7 @@ async def test_async_setup_entry(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
@@ -57,7 +57,7 @@ async def test_async_setup_entry_connection_error(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock(side_effect=Exception("Connection failed"))
@@ -73,7 +73,7 @@ async def test_async_unload_entry(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
@@ -98,7 +98,7 @@ async def test_service_love_song(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
@@ -126,7 +126,7 @@ async def test_service_ban_song(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
@@ -154,7 +154,7 @@ async def test_service_create_station(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
@@ -189,7 +189,7 @@ async def test_service_rename_station(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
@@ -221,7 +221,7 @@ async def test_service_delete_station(
     mock_config_entry.add_to_hass(hass)
     
     with patch(
-        "custom_components.pianobar.coordinator.PianobarCoordinator"
+        "custom_components.pianobar.PianobarCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
