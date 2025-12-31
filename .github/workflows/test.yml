@@ -66,3 +66,14 @@ jobs:
           mypy custom_components/pianobar/
         continue-on-error: true
 
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: HACS Validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
