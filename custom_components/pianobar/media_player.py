@@ -70,6 +70,9 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
     @property
     def state(self) -> MediaPlayerState:
         """Return the state of the player."""
+        # OFF when no station selected (stopped/disconnected)
+        if self.coordinator.data.get("station") is None:
+            return MediaPlayerState.OFF
         if not self.coordinator.data.get("playing"):
             return MediaPlayerState.IDLE
         if self.coordinator.data.get("paused"):
@@ -156,20 +159,35 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         await self.coordinator.send_action("playback.pause")
 
     async def async_turn_on(self) -> None:
-        """Turn on the media player (resume playback)."""
-        await self.coordinator.send_action("playback.play")
+        """Turn on - resume current station, or start QuickMix/first station."""
+        stations = self.coordinator.data.get("stations", [])
+        
+        # 1. Try current station first (if any)
+        current_station_id = self.coordinator.data.get("stationId")
+        if current_station_id:
+            await self.coordinator.send_event("station.change", current_station_id)
+            return
+        
+        # 2. Try QuickMix station
+        quickmix = next((s for s in stations if s.get("isQuickMix")), None)
+        if quickmix:
+            await self.coordinator.send_event("station.change", quickmix["id"])
+            return
+        
+        # 3. Fall back to first station
+        if stations:
+            await self.coordinator.send_event("station.change", stations[0]["id"])
 
     async def async_turn_off(self) -> None:
-        """Turn off the media player (pause, or resume if already paused)."""
-        # When paused, power button should resume (PAUSED is "on" to HA cards)
-        if self.coordinator.data.get("paused"):
-            await self.coordinator.send_action("playback.play")
-        else:
-            await self.coordinator.send_action("playback.pause")
+        """Turn off - stop playback and disconnect from Pandora."""
+        await self.coordinator.send_action("app.stop")
 
     async def async_toggle(self) -> None:
-        """Toggle the media player (play/pause)."""
-        await self.coordinator.send_action("playback.toggle")
+        """Toggle the media player - turn on if OFF, otherwise turn off."""
+        if self.state == MediaPlayerState.OFF:
+            await self.async_turn_on()
+        else:
+            await self.async_turn_off()
 
     async def async_media_next_track(self) -> None:
         """Send next track command."""

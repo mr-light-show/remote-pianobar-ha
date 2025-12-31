@@ -135,6 +135,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
         finally:
             if not self._is_closing:
                 _LOGGER.warning("WebSocket connection lost, attempting to reconnect")
+                # Clear playback state on connection loss so player cards reset
+                self._clear_playback_state()
+                self.async_set_updated_data(self.data)
                 self._reconnect_task = asyncio.create_task(self._reconnect())
 
     async def _reconnect(self) -> None:
@@ -183,6 +186,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._handle_start_event(event_payload)
             elif event_name == "stop":
                 self._handle_stop_event()
+            elif event_name == "stopped":
+                self._handle_stopped_event(event_payload)
             elif event_name == "progress":
                 self._handle_progress_event(event_payload)
             elif event_name == "volume":
@@ -232,12 +237,16 @@ class PianobarCoordinator(DataUpdateCoordinator):
         })
 
     def _handle_stop_event(self) -> None:
-        """Handle stop event (playback stopped)."""
+        """Handle stop event (song ended/skipped)."""
         self.data["playing"] = False
         if "song" in self.data:
             del self.data["song"]
         if "elapsed" in self.data:
             del self.data["elapsed"]
+
+    def _handle_stopped_event(self, payload: dict[str, Any]) -> None:
+        """Handle stopped event - fully disconnected from Pandora."""
+        self._clear_playback_state()
 
     def _handle_progress_event(self, payload: dict[str, Any]) -> None:
         """Handle progress event (playback position update)."""
@@ -257,6 +266,18 @@ class PianobarCoordinator(DataUpdateCoordinator):
     def _handle_stations_event(self, payload: list[dict[str, Any]]) -> None:
         """Handle stations event (station list update)."""
         self.data["stations"] = payload
+
+    def _clear_playback_state(self) -> None:
+        """Clear playback state (used on disconnect/stopped)."""
+        self.data.update({
+            "playing": False,
+            "paused": False,
+            "station": None,
+            "stationId": None,
+        })
+        # Remove optional keys
+        for key in ("song", "elapsed", "position_updated_at"):
+            self.data.pop(key, None)
 
     async def send_event(self, event_name: str, payload: Any) -> None:
         """Send an event to the WebSocket."""
