@@ -16,18 +16,43 @@ async def test_coordinator_connect_success(hass: HomeAssistant) -> None:
     """Test successful WebSocket connection."""
     coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
     
+    # Create a mock WebSocket that blocks on iteration to prevent immediate listener exit
+    async def infinite_iter():
+        # Keep the listener task blocked
+        await asyncio.sleep(100)  # This will be cancelled by disconnect
+        
     mock_ws = AsyncMock()
     mock_ws.closed = False
     mock_ws.send_str = AsyncMock()
-    mock_ws.__aiter__ = MagicMock(return_value=iter([]))
+    mock_ws.close = AsyncMock()
+    # Use a mock that just blocks instead of immediately ending
+    mock_ws.__aiter__ = MagicMock(return_value=AsyncIteratorMock())
     
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_session.return_value.ws_connect = AsyncMock(return_value=mock_ws)
-        
+    mock_session = AsyncMock()
+    mock_session.ws_connect = AsyncMock(return_value=mock_ws)
+    mock_session.closed = False
+    mock_session.close = AsyncMock()
+    
+    with patch("aiohttp.ClientSession", return_value=mock_session):
         await coordinator.async_connect()
         
         assert coordinator._ws == mock_ws
         mock_ws.send_str.assert_called_once()  # query event
+        
+        # Clean up - set closing flag first, then disconnect
+        await coordinator.async_disconnect()
+
+
+class AsyncIteratorMock:
+    """Mock async iterator that blocks until cancelled."""
+    
+    async def __anext__(self):
+        # Block forever (will be cancelled on disconnect)
+        try:
+            await asyncio.sleep(100)
+        except asyncio.CancelledError:
+            raise StopAsyncIteration
+        raise StopAsyncIteration
 
 
 async def test_coordinator_connect_timeout(hass: HomeAssistant) -> None:

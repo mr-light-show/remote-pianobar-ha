@@ -1,7 +1,7 @@
 """Test the Pianobar config flow."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -9,6 +9,8 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pianobar.const import DEFAULT_PORT, DOMAIN
 
@@ -70,13 +72,10 @@ async def test_form_cannot_connect(hass: HomeAssistant) -> None:
 
 async def test_form_already_configured(hass: HomeAssistant) -> None:
     """Test we handle already configured."""
-    entry = config_entries.ConfigEntry(
-        version=1,
-        minor_version=0,
+    entry = MockConfigEntry(
         domain=DOMAIN,
         title="Pianobar (127.0.0.1)",
         data={CONF_HOST: "127.0.0.1", CONF_PORT: 3000},
-        source=config_entries.SOURCE_USER,
         unique_id="127.0.0.1:3000",
     )
     entry.add_to_hass(hass)
@@ -105,14 +104,22 @@ async def test_validate_input_success(hass: HomeAssistant) -> None:
     """Test input validation with successful connection."""
     from custom_components.pianobar.config_flow import validate_input
 
+    # Create a proper async context manager mock for ws_connect
     mock_ws = AsyncMock()
     mock_ws.close = AsyncMock()
     
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_session.return_value.__aenter__.return_value.ws_connect = AsyncMock(
-            return_value=mock_ws.__aenter__.return_value
-        )
-        
+    mock_ws_context = AsyncMock()
+    mock_ws_context.__aenter__.return_value = mock_ws
+    mock_ws_context.__aexit__.return_value = None
+    
+    mock_session = AsyncMock()
+    mock_session.ws_connect.return_value = mock_ws_context
+    
+    mock_session_context = MagicMock()
+    mock_session_context.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+    
+    with patch("aiohttp.ClientSession", return_value=mock_session_context):
         result = await validate_input(
             hass,
             {CONF_HOST: "127.0.0.1", CONF_PORT: 3000},
@@ -125,11 +132,14 @@ async def test_validate_input_timeout(hass: HomeAssistant) -> None:
     """Test input validation with timeout."""
     from custom_components.pianobar.config_flow import CannotConnect, validate_input
     
-    with patch("aiohttp.ClientSession") as mock_session:
-        mock_session.return_value.__aenter__.return_value.ws_connect = AsyncMock(
-            side_effect=TimeoutError()
-        )
-        
+    mock_session = AsyncMock()
+    mock_session.ws_connect.side_effect = TimeoutError()
+    
+    mock_session_context = MagicMock()
+    mock_session_context.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session_context.__aexit__ = AsyncMock(return_value=None)
+    
+    with patch("aiohttp.ClientSession", return_value=mock_session_context):
         with pytest.raises(CannotConnect):
             await validate_input(
                 hass,

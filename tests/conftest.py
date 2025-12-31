@@ -7,8 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
 
 from custom_components.pianobar.const import DOMAIN
+
+
+@pytest.fixture(autouse=True)
+def auto_enable_custom_integrations(enable_custom_integrations):
+    """Enable custom integrations for all tests."""
+    yield
 
 
 @pytest.fixture
@@ -57,14 +65,18 @@ def mock_coordinator(mock_websocket):
 
 
 @pytest.fixture
-def mock_config_entry():
+def mock_config_entry(hass: HomeAssistant):
     """Mock ConfigEntry."""
-    return MagicMock(
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    entry = MockConfigEntry(
         domain=DOMAIN,
+        title="Pianobar (127.0.0.1)",
         data={CONF_HOST: "127.0.0.1", CONF_PORT: 3000},
         entry_id="test_entry_id",
         unique_id="127.0.0.1:3000",
     )
+    return entry
 
 
 @pytest.fixture
