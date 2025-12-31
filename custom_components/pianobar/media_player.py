@@ -36,7 +36,7 @@ SUPPORTED_FEATURES = (
     | MediaPlayerEntityFeature.VOLUME_STEP
     | MediaPlayerEntityFeature.NEXT_TRACK
     | MediaPlayerEntityFeature.SELECT_SOURCE
-    | MediaPlayerEntityFeature.BROWSE_MEDIA
+    | MediaPlayerEntityFeature.BROWSE_MEDIA  # Using source dropdown instead
     | MediaPlayerEntityFeature.PLAY_MEDIA
     | MediaPlayerEntityFeature.TURN_ON
     | MediaPlayerEntityFeature.TURN_OFF
