@@ -42,7 +42,7 @@ You need a running instance of [remote-pianobar](https://github.com/mr-light-sho
 1. Go to **Settings** → **Devices & Services**
 2. Click **+ Add Integration**
 3. Search for "Pianobar"
-4. Enter your remote-pianobar host and port (default: 3000)
+4. Enter your remote-pianobar host and port (default: 8080)
 
 ## Usage
 
