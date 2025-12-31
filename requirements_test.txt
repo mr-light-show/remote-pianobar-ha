@@ -1,11 +1,5 @@
 # Testing requirements for Pianobar Home Assistant integration
 
-# Core testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.1.0
-pytest-homeassistant-custom-component>=0.13.0
-
-# Mocking and utilities
-aiohttp>=3.8.0
+# This package pulls in all required pytest dependencies with correct versions
+pytest-homeassistant-custom-component>=0.12.0
 
