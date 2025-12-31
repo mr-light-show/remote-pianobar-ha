@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components.media_player import (
     BrowseMedia,
     MediaClass,
-    MediaType,
 )
 from homeassistant.core import HomeAssistant
 

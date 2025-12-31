@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 import json
 import logging
-from typing import Any, Callable
+from typing import Any
 
 import aiohttp
 from homeassistant.core import HomeAssistant
