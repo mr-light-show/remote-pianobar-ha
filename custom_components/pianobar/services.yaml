@@ -1,0 +1,58 @@
+love_song:
+  name: Love song
+  description: Give the current song a thumbs up
+  fields: {}
+
+ban_song:
+  name: Ban song
+  description: Give the current song a thumbs down (removes from station)
+  fields: {}
+
+tired_of_song:
+  name: Tired of song
+  description: Mark current song as tired (temporarily skip)
+  fields: {}
+
+create_station:
+  name: Create station
+  description: Create a new station from the current song or artist
+  fields:
+    type:
+      name: Type
+      description: Create station from "song" or "artist"
+      required: false
+      default: "song"
+      selector:
+        select:
+          options:
+            - "song"
+            - "artist"
+
+rename_station:
+  name: Rename station
+  description: Rename an existing station
+  fields:
+    station_id:
+      name: Station ID
+      description: ID of the station to rename
+      required: true
+      selector:
+        text:
+    name:
+      name: New name
+      description: New name for the station
+      required: true
+      selector:
+        text:
+
+delete_station:
+  name: Delete station
+  description: Delete a station
+  fields:
+    station_id:
+      name: Station ID
+      description: ID of the station to delete
+      required: true
+      selector:
+        text:
+

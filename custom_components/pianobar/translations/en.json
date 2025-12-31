@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Pianobar",
+        "description": "Enter the connection details for your remote-pianobar instance.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Pianobar. Please check the host and port.",
+      "unknown": "Unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This Pianobar instance is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Pianobar Settings",
+        "description": "Update the connection details for your remote-pianobar instance.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Pianobar. Please check the host and port.",
+      "unknown": "Unexpected error occurred."
+    }
+  }
+}
+
