@@ -202,10 +202,12 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
     def _handle_process_event(self, payload: dict[str, Any]) -> None:
         """Handle process event (full state update)."""
+        # Wire protocol sends volume as 0-100, HA expects 0.0-1.0
+        wire_volume = payload.get("volume", 0)
         self.data.update({
             "playing": payload.get("playing", False),
             "paused": payload.get("paused", False),
-            "volume": payload.get("volume", 0),
+            "volume": wire_volume / 100.0,
             "maxGain": payload.get("maxGain", 10),
             "station": payload.get("station", ""),
             "stationId": payload.get("stationId", ""),
@@ -245,7 +247,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
     def _handle_volume_event(self, payload: float) -> None:
         """Handle volume event (volume changed)."""
-        self.data["volume"] = payload
+        # Wire protocol sends 0-100, HA expects 0.0-1.0
+        self.data["volume"] = payload / 100.0
 
     def _handle_play_state_event(self, payload: dict[str, Any]) -> None:
         """Handle playState event (pause/resume)."""
