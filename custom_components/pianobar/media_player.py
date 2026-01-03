@@ -71,7 +71,8 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
     def state(self) -> MediaPlayerState:
         """Return the state of the player."""
         # OFF when no station selected (stopped/disconnected)
-        if self.coordinator.data.get("station") is None:
+        # Handles both None and empty string ""
+        if not self.coordinator.data.get("station"):
             return MediaPlayerState.OFF
         if not self.coordinator.data.get("playing"):
             return MediaPlayerState.IDLE

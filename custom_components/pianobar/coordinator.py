@@ -191,8 +191,6 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._handle_start_event(event_payload)
             elif event_name == "stop":
                 self._handle_stop_event()
-            elif event_name == "stopped":
-                self._handle_stopped_event(event_payload)
             elif event_name == "progress":
                 self._handle_progress_event(event_payload)
             elif event_name == "volume":
@@ -248,10 +246,6 @@ class PianobarCoordinator(DataUpdateCoordinator):
             del self.data["song"]
         if "elapsed" in self.data:
             del self.data["elapsed"]
-
-    def _handle_stopped_event(self, payload: dict[str, Any]) -> None:
-        """Handle stopped event - fully disconnected from Pandora."""
-        self._clear_playback_state()
 
     def _handle_progress_event(self, payload: dict[str, Any]) -> None:
         """Handle progress event (playback position update)."""
