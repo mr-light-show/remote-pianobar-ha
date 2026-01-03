@@ -51,6 +51,11 @@ class PianobarCoordinator(DataUpdateCoordinator):
             "stations": [],
         }
 
+    @property
+    def is_connected(self) -> bool:
+        """Return True if WebSocket is connected."""
+        return self._ws is not None and not self._ws.closed
+
     async def async_connect(self) -> None:
         """Connect to the WebSocket."""
         if self._session is None:

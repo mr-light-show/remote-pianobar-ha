@@ -56,3 +56,8 @@ delete_station:
       selector:
         text:
 
+reconnect:
+  name: Reconnect
+  description: Force reconnect to remote-pianobar WebSocket
+  fields: {}
+

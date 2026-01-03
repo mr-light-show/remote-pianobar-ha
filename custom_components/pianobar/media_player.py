@@ -160,6 +160,14 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
 
     async def async_turn_on(self) -> None:
         """Turn on - resume current station, or start QuickMix/first station."""
+        # Force reconnect if disconnected
+        if not self.coordinator.is_connected:
+            try:
+                await self.coordinator.async_connect()
+            except Exception as err:
+                _LOGGER.error("Failed to reconnect: %s", err)
+                return
+        
         stations = self.coordinator.data.get("stations", [])
         
         # 1. Try current station first (if any)

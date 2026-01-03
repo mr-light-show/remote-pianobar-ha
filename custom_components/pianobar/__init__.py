@@ -16,6 +16,7 @@ from .const import (
     SERVICE_CREATE_STATION,
     SERVICE_DELETE_STATION,
     SERVICE_LOVE_SONG,
+    SERVICE_RECONNECT,
     SERVICE_RENAME_STATION,
     SERVICE_TIRED_OF_SONG,
 )
@@ -98,6 +99,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             station_id
         )
 
+    async def async_reconnect(call: ServiceCall) -> None:
+        """Handle reconnect service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        if not coordinator.is_connected:
+            try:
+                await coordinator.async_connect()
+                _LOGGER.info("Reconnected to Pianobar")
+            except Exception as err:
+                _LOGGER.error("Failed to reconnect: %s", err)
+        else:
+            _LOGGER.info("Already connected to Pianobar")
+
     # Register services
     hass.services.async_register(
         DOMAIN,
@@ -146,6 +159,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         schema=vol.Schema({
             vol.Required("station_id"): cv.string,
         }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RECONNECT,
+        async_reconnect,
+        schema=vol.Schema({}),
     )
 
     return True

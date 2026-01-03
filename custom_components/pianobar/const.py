@@ -21,6 +21,7 @@ SERVICE_TIRED_OF_SONG = "tired_of_song"
 SERVICE_CREATE_STATION = "create_station"
 SERVICE_RENAME_STATION = "rename_station"
 SERVICE_DELETE_STATION = "delete_station"
+SERVICE_RECONNECT = "reconnect"
 
 # Media browser
 MEDIA_TYPE_STATION = "station"
