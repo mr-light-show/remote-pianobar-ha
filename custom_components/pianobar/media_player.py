@@ -143,13 +143,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
 
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
-        stations = self.coordinator.data.get("stations", [])
-        station = next((s for s in stations if s["name"] == source), None)
-        
-        if station:
-            await self.coordinator.send_event("station.change", station["id"])
-        else:
-            _LOGGER.error("Station not found: %s", source)
+        await self._play_station(source)
 
     async def async_media_play(self) -> None:
         """Send play command."""
@@ -160,8 +154,8 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         await self.coordinator.send_action("playback.pause")
 
     async def async_turn_on(self) -> None:
-        """Turn on - resume current station, or start QuickMix/first station."""
-        # Force reconnect if disconnected
+        """Turn on - reconnect to Pandora and fetch stations."""
+        # Force WebSocket reconnect if disconnected
         if not self.coordinator.is_connected:
             try:
                 await self.coordinator.async_connect()
@@ -169,27 +163,12 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
                 _LOGGER.error("Failed to reconnect: %s", err)
                 return
         
-        stations = self.coordinator.data.get("stations", [])
-        
-        # 1. Try current station first (if any)
-        current_station_id = self.coordinator.data.get("stationId")
-        if current_station_id:
-            await self.coordinator.send_event("station.change", current_station_id)
-            return
-        
-        # 2. Try QuickMix station
-        quickmix = next((s for s in stations if s.get("isQuickMix")), None)
-        if quickmix:
-            await self.coordinator.send_event("station.change", quickmix["id"])
-            return
-        
-        # 3. Fall back to first station
-        if stations:
-            await self.coordinator.send_event("station.change", stations[0]["id"])
+        # Re-authenticate with Pandora and fetch stations
+        await self.coordinator.send_action("app.pandora-reconnect")
 
     async def async_turn_off(self) -> None:
         """Turn off - stop playback and disconnect from Pandora."""
-        await self.coordinator.send_action("app.stop")
+        await self.coordinator.send_action("app.pandora-disconnect")
 
     async def async_toggle(self) -> None:
         """Toggle the media player - turn on if OFF, otherwise turn off."""
@@ -226,13 +205,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
     ) -> None:
         """Play a piece of media."""
         if media_type in (MediaType.PLAYLIST, MediaType.MUSIC, MEDIA_TYPE_STATION):
-            # Try to find station by ID or name
-            station = self._find_station(media_id)
-            
-            if station:
-                await self.coordinator.send_event("station.change", station["id"])
-            else:
-                _LOGGER.error("Station not found: %s", media_id)
+            await self._play_station(media_id)
 
     async def async_browse_media(
         self,
@@ -246,6 +219,27 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
             media_content_type,
             media_content_id,
         )
+
+    async def _play_station(self, station_id_or_name: str) -> None:
+        """Play a station by ID or name, auto-reconnecting if needed."""
+        # Auto-reconnect if disconnected from Pandora
+        if self.state == MediaPlayerState.OFF:
+            await self.async_turn_on()
+        
+        station = self._find_station(station_id_or_name)
+        
+        if station:
+            await self.coordinator.send_event("station.change", station["id"])
+            return
+        
+        # Station not found - refresh and retry
+        _LOGGER.warning("Station '%s' not found, refreshing station list", station_id_or_name)
+        await self.coordinator.send_event("query.stations", None)
+        station = self._find_station(station_id_or_name)
+        if station:
+            await self.coordinator.send_event("station.change", station["id"])
+        else:
+            _LOGGER.error("Station not found after refresh: %s", station_id_or_name)
 
     def _find_station(self, station_id_or_name: str) -> dict[str, Any] | None:
         """Find a station by ID or name."""
