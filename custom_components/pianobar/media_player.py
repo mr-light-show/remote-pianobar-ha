@@ -141,6 +141,21 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         """When the position was last updated."""
         return self.coordinator.data.get("position_updated_at")
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return entity specific state attributes."""
+        return {
+            "supported_actions": [
+                "love_song",
+                "ban_song",
+                "tired_of_song",
+                "create_station",
+                "rename_station",
+                "delete_station",
+                "reconnect",
+            ],
+        }
+
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
         await self._play_station(source)
