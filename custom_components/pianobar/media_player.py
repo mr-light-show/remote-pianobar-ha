@@ -144,7 +144,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
-        return {
+        attrs: dict[str, Any] = {
             "supported_actions": [
                 "love_song",
                 "ban_song",
@@ -155,6 +155,13 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
                 "reconnect",
             ],
         }
+        # Add rating from current song if available
+        song = self.coordinator.data.get("song")
+        if song:
+            attrs["rating"] = song.get("rating", 0)
+        else:
+            attrs["rating"] = 0
+        return attrs
 
     async def async_select_source(self, source: str) -> None:
         """Select input source."""

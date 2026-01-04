@@ -122,6 +122,41 @@ Browse your stations and search for new music using the built-in media browser:
 2. Click "Browse Media"
 3. Navigate through your stations or search for new music
 
+## Entity Attributes
+
+The media player entity exposes additional attributes for Lovelace card integration:
+
+### `supported_actions`
+
+Array of custom actions this entity supports:
+- `love_song`, `ban_song`, `tired_of_song` - Song rating actions
+- `create_station`, `rename_station`, `delete_station` - Station management
+- `reconnect` - WebSocket reconnection
+
+### `rating`
+
+Current song's rating:
+- `0` = Not rated
+- `1` = Loved (thumbs up)
+
+### Example Usage (Templates)
+
+```yaml
+# Check if song is loved
+{{ state_attr('media_player.pianobar', 'rating') == 1 }}
+
+# Check if action is supported
+{{ 'love_song' in state_attr('media_player.pianobar', 'supported_actions') }}
+```
+
+### Example Usage (JavaScript/Cards)
+
+```javascript
+const supportedActions = entity.attributes.supported_actions || [];
+const supportsLove = supportedActions.includes('love_song');
+const isLoved = entity.attributes.rating === 1;
+```
+
 ## Supported Features
 
 - ✅ Play/Pause
