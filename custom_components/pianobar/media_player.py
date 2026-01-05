@@ -154,13 +154,17 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
                 "delete_station",
                 "reconnect",
             ],
+            # Full station data: id, name, isQuickMix, isQuickMixed
+            "stations": self.coordinator.data.get("stations", []),
         }
-        # Add rating from current song if available
+        # Add rating and song station name from current song if available
         song = self.coordinator.data.get("song")
         if song:
             attrs["rating"] = song.get("rating", 0)
+            attrs["song_station_name"] = song.get("songStationName", "")
         else:
             attrs["rating"] = 0
+            attrs["song_station_name"] = ""
         return attrs
 
     async def async_select_source(self, source: str) -> None:
