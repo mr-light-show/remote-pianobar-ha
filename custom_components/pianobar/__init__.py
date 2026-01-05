@@ -102,7 +102,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         
         await coordinator.send_event(
             "station.rename",
-            {"stationId": station_id, "name": new_name}
+            {"stationId": station_id, "newName": new_name}
         )
 
     async def async_delete_station(call: ServiceCall) -> None:
