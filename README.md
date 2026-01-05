@@ -114,6 +114,141 @@ data:
   type: song  # or "artist"
 ```
 
+#### Explain Song
+
+Get Pandora's explanation for why the current song was chosen:
+
+```yaml
+service: pianobar.explain_song
+target:
+  entity_id: media_player.pianobar
+response_variable: explanation
+```
+
+#### Get Upcoming Songs
+
+Get list of upcoming songs in the queue:
+
+```yaml
+service: pianobar.get_upcoming
+target:
+  entity_id: media_player.pianobar
+response_variable: upcoming
+```
+
+#### Set QuickMix
+
+Configure which stations are included in QuickMix:
+
+```yaml
+service: pianobar.set_quick_mix
+target:
+  entity_id: media_player.pianobar
+data:
+  station_ids:
+    - "3914377188324099182"
+    - "4506787012345678901"
+```
+
+#### Add Seed to Station
+
+Add an artist or song as a seed to an existing station (requires musicId from search):
+
+```yaml
+service: pianobar.add_seed
+target:
+  entity_id: media_player.pianobar
+data:
+  music_id: "R12345"
+  station_id: "3914377188324099182"
+```
+
+#### Get Station Info
+
+Get station seeds and feedback history:
+
+```yaml
+service: pianobar.get_station_info
+target:
+  entity_id: media_player.pianobar
+data:
+  station_id: "3914377188324099182"
+response_variable: station_info
+```
+
+#### Delete Seed from Station
+
+Remove a seed from a station:
+
+```yaml
+service: pianobar.delete_seed
+target:
+  entity_id: media_player.pianobar
+data:
+  seed_id: "AS1234567890"
+  seed_type: "artist"  # or "song" or "station"
+  station_id: "3914377188324099182"
+```
+
+#### Delete Feedback
+
+Remove a thumbs up/down from station history:
+
+```yaml
+service: pianobar.delete_feedback
+target:
+  entity_id: media_player.pianobar
+data:
+  feedback_id: "F9988776655"
+  station_id: "3914377188324099182"
+```
+
+#### Get Station Modes
+
+Get available playback modes for a station (My Station, Crowd Faves, Deep Cuts, Discovery):
+
+```yaml
+service: pianobar.get_station_modes
+target:
+  entity_id: media_player.pianobar
+data:
+  station_id: "3914377188324099182"
+response_variable: modes
+```
+
+#### Set Station Mode
+
+Set the playback mode for a station:
+
+```yaml
+service: pianobar.set_station_mode
+target:
+  entity_id: media_player.pianobar
+data:
+  station_id: "3914377188324099182"
+  mode_id: 2  # 0=My Station, 1=Crowd Faves, 2=Deep Cuts, 3=Discovery
+```
+
+#### Toggle Playback
+
+Toggle between play and pause:
+
+```yaml
+service: pianobar.toggle_playback
+target:
+  entity_id: media_player.pianobar
+```
+
+#### Reset Volume
+
+Reset volume to 50% default:
+
+```yaml
+service: pianobar.reset_volume
+target:
+  entity_id: media_player.pianobar
+```
+
 ## Media Browser
 
 Browse your stations and search for new music using the built-in media browser:
@@ -132,6 +267,15 @@ Array of custom actions this entity supports:
 - `love_song`, `ban_song`, `tired_of_song` - Song rating actions
 - `create_station`, `rename_station`, `delete_station` - Station management
 - `reconnect` - WebSocket reconnection
+- `explain_song` - Get song recommendation explanation
+- `get_upcoming` - View upcoming songs in queue
+- `set_quick_mix` - Configure QuickMix stations
+- `add_seed`, `delete_seed` - Station seed management
+- `delete_feedback` - Remove rating from station
+- `get_station_info` - Get station details
+- `get_station_modes`, `set_station_mode` - Station playback modes
+- `toggle_playback` - Toggle play/pause
+- `reset_volume` - Reset volume to default
 
 ### `rating`
 

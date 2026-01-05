@@ -12,13 +12,24 @@ import voluptuous as vol
 
 from .const import (
     DOMAIN,
+    SERVICE_ADD_SEED,
     SERVICE_BAN_SONG,
     SERVICE_CREATE_STATION,
+    SERVICE_DELETE_FEEDBACK,
+    SERVICE_DELETE_SEED,
     SERVICE_DELETE_STATION,
+    SERVICE_EXPLAIN_SONG,
+    SERVICE_GET_STATION_INFO,
+    SERVICE_GET_STATION_MODES,
+    SERVICE_GET_UPCOMING,
     SERVICE_LOVE_SONG,
     SERVICE_RECONNECT,
     SERVICE_RENAME_STATION,
+    SERVICE_RESET_VOLUME,
+    SERVICE_SET_QUICK_MIX,
+    SERVICE_SET_STATION_MODE,
     SERVICE_TIRED_OF_SONG,
+    SERVICE_TOGGLE_PLAYBACK,
 )
 from .coordinator import PianobarCoordinator
 
@@ -111,6 +122,105 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.info("Already connected to Pianobar")
 
+    async def async_explain_song(call: ServiceCall) -> dict[str, Any]:
+        """Handle explain_song service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        await coordinator.send_action("song.explain")
+        explanation = await coordinator.wait_for_response("song_explanation")
+        return {"explanation": explanation or ""}
+
+    async def async_get_upcoming(call: ServiceCall) -> dict[str, Any]:
+        """Handle get_upcoming service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        await coordinator.send_action("query.upcoming")
+        upcoming = await coordinator.wait_for_response("upcoming")
+        return {"songs": upcoming or []}
+
+    async def async_set_quick_mix(call: ServiceCall) -> None:
+        """Handle set_quick_mix service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        station_ids = call.data.get("station_ids", [])
+        await coordinator.send_event("station.setQuickMix", station_ids)
+
+    async def async_add_seed(call: ServiceCall) -> None:
+        """Handle add_seed service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        music_id = call.data.get("music_id")
+        station_id = call.data.get("station_id")
+        
+        await coordinator.send_event(
+            "station.addMusic",
+            {"musicId": music_id, "stationId": station_id}
+        )
+
+    async def async_get_station_info(call: ServiceCall) -> dict[str, Any]:
+        """Handle get_station_info service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        station_id = call.data.get("station_id")
+        
+        await coordinator.send_event(
+            "station.getInfo",
+            {"stationId": station_id}
+        )
+        station_info = await coordinator.wait_for_response("station_info")
+        return station_info or {}
+
+    async def async_delete_seed(call: ServiceCall) -> None:
+        """Handle delete_seed service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        seed_id = call.data.get("seed_id")
+        seed_type = call.data.get("seed_type")
+        station_id = call.data.get("station_id")
+        
+        await coordinator.send_event(
+            "station.deleteSeed",
+            {"seedId": seed_id, "seedType": seed_type, "stationId": station_id}
+        )
+
+    async def async_delete_feedback(call: ServiceCall) -> None:
+        """Handle delete_feedback service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        feedback_id = call.data.get("feedback_id")
+        station_id = call.data.get("station_id")
+        
+        await coordinator.send_event(
+            "station.deleteFeedback",
+            {"feedbackId": feedback_id, "stationId": station_id}
+        )
+
+    async def async_get_station_modes(call: ServiceCall) -> dict[str, Any]:
+        """Handle get_station_modes service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        station_id = call.data.get("station_id")
+        
+        await coordinator.send_event(
+            "station.getModes",
+            {"stationId": station_id}
+        )
+        modes = await coordinator.wait_for_response("station_modes")
+        return {"modes": modes or []}
+
+    async def async_set_station_mode(call: ServiceCall) -> None:
+        """Handle set_station_mode service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        station_id = call.data.get("station_id")
+        mode_id = call.data.get("mode_id")
+        
+        await coordinator.send_event(
+            "station.setMode",
+            {"stationId": station_id, "modeId": mode_id}
+        )
+
+    async def async_toggle_playback(call: ServiceCall) -> None:
+        """Handle toggle_playback service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        await coordinator.send_action("playback.toggle")
+
+    async def async_reset_volume(call: ServiceCall) -> None:
+        """Handle reset_volume service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        await coordinator.send_action("volume.reset")
+
     # Register services
     hass.services.async_register(
         DOMAIN,
@@ -165,6 +275,106 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DOMAIN,
         SERVICE_RECONNECT,
         async_reconnect,
+        schema=vol.Schema({}),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_EXPLAIN_SONG,
+        async_explain_song,
+        schema=vol.Schema({}),
+        supports_response="optional",
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_UPCOMING,
+        async_get_upcoming,
+        schema=vol.Schema({}),
+        supports_response="optional",
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_QUICK_MIX,
+        async_set_quick_mix,
+        schema=vol.Schema({
+            vol.Required("station_ids"): [cv.string],
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ADD_SEED,
+        async_add_seed,
+        schema=vol.Schema({
+            vol.Required("music_id"): cv.string,
+            vol.Required("station_id"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_STATION_INFO,
+        async_get_station_info,
+        schema=vol.Schema({
+            vol.Required("station_id"): cv.string,
+        }),
+        supports_response="optional",
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DELETE_SEED,
+        async_delete_seed,
+        schema=vol.Schema({
+            vol.Required("seed_id"): cv.string,
+            vol.Required("seed_type"): vol.In(["artist", "song", "station"]),
+            vol.Required("station_id"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DELETE_FEEDBACK,
+        async_delete_feedback,
+        schema=vol.Schema({
+            vol.Required("feedback_id"): cv.string,
+            vol.Required("station_id"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_STATION_MODES,
+        async_get_station_modes,
+        schema=vol.Schema({
+            vol.Required("station_id"): cv.string,
+        }),
+        supports_response="optional",
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_STATION_MODE,
+        async_set_station_mode,
+        schema=vol.Schema({
+            vol.Required("station_id"): cv.string,
+            vol.Required("mode_id"): vol.Coerce(int),
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_TOGGLE_PLAYBACK,
+        async_toggle_playback,
+        schema=vol.Schema({}),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESET_VOLUME,
+        async_reset_volume,
         schema=vol.Schema({}),
     )
 

@@ -50,6 +50,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
             "stationId": "",
             "stations": [],
         }
+        
+        # Response data storage (for service calls that return data)
+        self._response_data: dict[str, Any] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -199,6 +202,14 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._handle_play_state_event(event_payload)
             elif event_name == "stations":
                 self._handle_stations_event(event_payload)
+            elif event_name == "song.explanation":
+                self._handle_song_explanation_event(event_payload)
+            elif event_name == "query.upcoming.result":
+                self._handle_upcoming_result_event(event_payload)
+            elif event_name == "stationInfo":
+                self._handle_station_info_event(event_payload)
+            elif event_name == "stationModes":
+                self._handle_station_modes_event(event_payload)
                 
             # Notify listeners of state change
             self.async_set_updated_data(self.data)
@@ -277,6 +288,36 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # Remove optional keys
         for key in ("song", "elapsed", "position_updated_at"):
             self.data.pop(key, None)
+
+    def _handle_song_explanation_event(self, payload: dict[str, Any]) -> None:
+        """Handle song.explanation event (song recommendation explanation)."""
+        self._response_data["song_explanation"] = payload.get("explanation", "")
+
+    def _handle_upcoming_result_event(self, payload: list[dict[str, Any]]) -> None:
+        """Handle query.upcoming.result event (upcoming songs)."""
+        self._response_data["upcoming"] = payload
+
+    def _handle_station_info_event(self, payload: dict[str, Any]) -> None:
+        """Handle stationInfo event (station seeds and feedback)."""
+        self._response_data["station_info"] = payload
+
+    def _handle_station_modes_event(self, payload: dict[str, Any]) -> None:
+        """Handle stationModes event (station playback modes)."""
+        self._response_data["station_modes"] = payload.get("modes", [])
+
+    def get_response_data(self, key: str) -> Any:
+        """Get and clear response data for a given key."""
+        return self._response_data.pop(key, None)
+
+    async def wait_for_response(self, key: str, timeout: float = 5.0) -> Any:
+        """Wait for response data with timeout."""
+        import asyncio
+        start_time = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start_time < timeout:
+            if key in self._response_data:
+                return self.get_response_data(key)
+            await asyncio.sleep(0.1)
+        return None
 
     async def send_event(self, event_name: str, payload: Any) -> None:
         """Send an event to the WebSocket."""

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -244,4 +245,111 @@ async def test_handle_message_non_event(hass: HomeAssistant) -> None:
     
     # Should be ignored
     await coordinator._handle_message(message)
+
+
+async def test_handle_song_explanation_event(hass: HomeAssistant) -> None:
+    """Test handling song.explanation event."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    message = '2["song.explanation",{"explanation":"Test explanation text"}]'
+    
+    await coordinator._handle_message(message)
+    
+    assert coordinator._response_data["song_explanation"] == "Test explanation text"
+
+
+async def test_handle_upcoming_result_event(hass: HomeAssistant) -> None:
+    """Test handling query.upcoming.result event."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    upcoming_songs = [
+        {"title": "Song 1", "artist": "Artist 1"},
+        {"title": "Song 2", "artist": "Artist 2"},
+    ]
+    message = f'2["query.upcoming.result",{json.dumps(upcoming_songs)}]'
+    
+    await coordinator._handle_message(message)
+    
+    assert len(coordinator._response_data["upcoming"]) == 2
+    assert coordinator._response_data["upcoming"][0]["title"] == "Song 1"
+
+
+async def test_handle_station_info_event(hass: HomeAssistant) -> None:
+    """Test handling stationInfo event."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    station_info = {
+        "artistSeeds": [{"seedId": "AS123", "name": "Test Artist"}],
+        "songSeeds": [],
+        "stationSeeds": [],
+        "feedback": [],
+    }
+    message = f'2["stationInfo",{json.dumps(station_info)}]'
+    
+    await coordinator._handle_message(message)
+    
+    assert len(coordinator._response_data["station_info"]["artistSeeds"]) == 1
+    assert coordinator._response_data["station_info"]["artistSeeds"][0]["name"] == "Test Artist"
+
+
+async def test_handle_station_modes_event(hass: HomeAssistant) -> None:
+    """Test handling stationModes event."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    modes_data = {
+        "modes": [
+            {"id": 0, "name": "My Station", "active": True},
+            {"id": 1, "name": "Crowd Faves", "active": False},
+        ]
+    }
+    message = f'2["stationModes",{json.dumps(modes_data)}]'
+    
+    await coordinator._handle_message(message)
+    
+    assert len(coordinator._response_data["station_modes"]) == 2
+    assert coordinator._response_data["station_modes"][0]["name"] == "My Station"
+
+
+async def test_get_response_data(hass: HomeAssistant) -> None:
+    """Test getting and clearing response data."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    # Set some response data
+    coordinator._response_data["test_key"] = "test_value"
+    
+    # Get data (should clear it)
+    result = coordinator.get_response_data("test_key")
+    assert result == "test_value"
+    
+    # Should be cleared now
+    result2 = coordinator.get_response_data("test_key")
+    assert result2 is None
+
+
+async def test_wait_for_response_timeout(hass: HomeAssistant) -> None:
+    """Test waiting for response with timeout."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    # Wait for data that never arrives (short timeout)
+    result = await coordinator.wait_for_response("missing_key", timeout=0.1)
+    
+    assert result is None
+
+
+async def test_wait_for_response_success(hass: HomeAssistant) -> None:
+    """Test waiting for response successfully."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    # Simulate async data arrival
+    async def set_data():
+        await asyncio.sleep(0.05)
+        coordinator._response_data["test_key"] = "test_value"
+    
+    # Start both tasks
+    import asyncio
+    data_task = asyncio.create_task(set_data())
+    result = await coordinator.wait_for_response("test_key", timeout=1.0)
+    await data_task
+    
+    assert result == "test_value"
 

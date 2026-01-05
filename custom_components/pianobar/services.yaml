@@ -61,3 +61,170 @@ reconnect:
   description: Force reconnect to remote-pianobar WebSocket
   fields: {}
 
+explain_song:
+  name: Explain song
+  description: Get Pandora's explanation for why the current song was chosen
+  fields: {}
+  response:
+    type: object
+    properties:
+      explanation:
+        type: string
+        description: Text explanation from Pandora
+
+get_upcoming:
+  name: Get upcoming songs
+  description: Get list of upcoming songs in the queue
+  fields: {}
+  response:
+    type: object
+    properties:
+      songs:
+        type: array
+        description: Array of upcoming song objects
+
+set_quick_mix:
+  name: Set QuickMix
+  description: Configure which stations are included in QuickMix
+  fields:
+    station_ids:
+      name: Station IDs
+      description: Array of station IDs to include in QuickMix
+      required: true
+      selector:
+        object:
+
+add_seed:
+  name: Add seed to station
+  description: Add an artist or song as a seed to an existing station
+  fields:
+    music_id:
+      name: Music ID
+      description: Music ID from search results
+      required: true
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Target station ID
+      required: true
+      selector:
+        text:
+
+get_station_info:
+  name: Get station info
+  description: Get station seeds and feedback history
+  fields:
+    station_id:
+      name: Station ID
+      description: Station ID to get info for
+      required: true
+      selector:
+        text:
+  response:
+    type: object
+    properties:
+      artistSeeds:
+        type: array
+        description: Artist seeds for this station
+      songSeeds:
+        type: array
+        description: Song seeds for this station
+      stationSeeds:
+        type: array
+        description: Station seeds for this station
+      feedback:
+        type: array
+        description: Thumbs up/down feedback history
+
+delete_seed:
+  name: Delete seed from station
+  description: Remove a seed from a station
+  fields:
+    seed_id:
+      name: Seed ID
+      description: Seed ID from station info
+      required: true
+      selector:
+        text:
+    seed_type:
+      name: Seed type
+      description: Type of seed to delete
+      required: true
+      selector:
+        select:
+          options:
+            - "artist"
+            - "song"
+            - "station"
+    station_id:
+      name: Station ID
+      description: Station ID
+      required: true
+      selector:
+        text:
+
+delete_feedback:
+  name: Delete feedback
+  description: Remove a thumbs up/down from station history
+  fields:
+    feedback_id:
+      name: Feedback ID
+      description: Feedback ID from station info
+      required: true
+      selector:
+        text:
+    station_id:
+      name: Station ID
+      description: Station ID
+      required: true
+      selector:
+        text:
+
+get_station_modes:
+  name: Get station modes
+  description: Get available playback modes for a station
+  fields:
+    station_id:
+      name: Station ID
+      description: Station ID
+      required: true
+      selector:
+        text:
+  response:
+    type: object
+    properties:
+      modes:
+        type: array
+        description: Array of available playback modes
+
+set_station_mode:
+  name: Set station mode
+  description: Set the playback mode for a station
+  fields:
+    station_id:
+      name: Station ID
+      description: Station ID
+      required: true
+      selector:
+        text:
+    mode_id:
+      name: Mode ID
+      description: Mode ID (0=My Station, 1=Crowd Faves, 2=Deep Cuts, 3=Discovery)
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 3
+          mode: slider
+
+toggle_playback:
+  name: Toggle playback
+  description: Toggle between play and pause
+  fields: {}
+
+reset_volume:
+  name: Reset volume
+  description: Reset volume to 50% default
+  fields: {}
+
