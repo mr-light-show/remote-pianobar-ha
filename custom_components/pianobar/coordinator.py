@@ -214,6 +214,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._handle_search_results_event(event_payload)
             elif event_name == "genres":
                 self._handle_genres_event(event_payload)
+            elif event_name == "error":
+                self._handle_error_event(event_payload)
                 
             # Notify listeners of state change
             self.async_set_updated_data(self.data)
@@ -316,6 +318,17 @@ class PianobarCoordinator(DataUpdateCoordinator):
     def _handle_genres_event(self, payload: dict[str, Any]) -> None:
         """Handle genres event (genre categories)."""
         self._response_data["genres"] = payload
+
+    def _handle_error_event(self, payload: dict[str, Any]) -> None:
+        """Handle error event from backend."""
+        operation = payload.get("operation", "")
+        message = payload.get("message", "Unknown error")
+        
+        # Map operation to response key and store error message
+        if operation == "song.explain":
+            self._response_data["song_explanation"] = ""  # Empty string indicates no explanation
+            _LOGGER.debug("Backend error for %s: %s", operation, message)
+        # Add other operations as needed
 
     def get_response_data(self, key: str) -> Any:
         """Get and clear response data for a given key."""
