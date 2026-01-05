@@ -25,6 +25,7 @@ from custom_components.pianobar.const import (
     SERVICE_GET_STATION_MODES,
     SERVICE_GET_UPCOMING,
     SERVICE_LOVE_SONG,
+    SERVICE_RECONNECT,
     SERVICE_RENAME_STATION,
     SERVICE_RESET_VOLUME,
     SERVICE_SEARCH,
@@ -159,6 +160,63 @@ async def test_service_ban_song(
         )
         
         mock_coordinator.send_action.assert_called_once_with("song.ban")
+
+
+async def test_service_tired_of_song(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Test tired_of_song service."""
+    mock_config_entry.add_to_hass(hass)
+    
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_action = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+        
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_TIRED_OF_SONG,
+            {},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_action.assert_called_once_with("song.tired")
+
+
+async def test_service_reconnect(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Test reconnect service."""
+    mock_config_entry.add_to_hass(hass)
+    
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.is_connected = False
+        mock_coordinator.data = {"playing": False}
+        
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RECONNECT,
+            {},
+            blocking=True,
+        )
+        
+        # Should call async_connect when not connected
+        assert mock_coordinator.async_connect.call_count == 2  # Once during setup, once for reconnect
 
 
 async def test_service_create_station(
