@@ -353,3 +353,63 @@ async def test_wait_for_response_success(hass: HomeAssistant) -> None:
     
     assert result == "test_value"
 
+
+async def test_handle_search_results_event(hass: HomeAssistant) -> None:
+    """Test handling searchResults event."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    search_results = {
+        "categories": [
+            {
+                "name": "Artists",
+                "results": [
+                    {"name": "Test Artist", "musicId": "R123"}
+                ]
+            },
+            {
+                "name": "Songs",
+                "results": [
+                    {"title": "Test Song", "artist": "Test Artist", "musicId": "S456"}
+                ]
+            }
+        ]
+    }
+    message = f'2["searchResults",{json.dumps(search_results)}]'
+    
+    await coordinator._handle_message(message)
+    
+    assert "search_results" in coordinator._response_data
+    assert len(coordinator._response_data["search_results"]["categories"]) == 2
+    assert coordinator._response_data["search_results"]["categories"][0]["name"] == "Artists"
+
+
+async def test_handle_genres_event(hass: HomeAssistant) -> None:
+    """Test handling genres event."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    genres_data = {
+        "categories": [
+            {
+                "name": "Rock",
+                "genres": [
+                    {"name": "Classic Rock", "musicId": "G100"},
+                    {"name": "Alternative Rock", "musicId": "G101"}
+                ]
+            },
+            {
+                "name": "Pop",
+                "genres": [
+                    {"name": "Today's Hits", "musicId": "G200"}
+                ]
+            }
+        ]
+    }
+    message = f'2["genres",{json.dumps(genres_data)}]'
+    
+    await coordinator._handle_message(message)
+    
+    assert "genres" in coordinator._response_data
+    assert len(coordinator._response_data["genres"]["categories"]) == 2
+    assert coordinator._response_data["genres"]["categories"][0]["name"] == "Rock"
+    assert len(coordinator._response_data["genres"]["categories"][0]["genres"]) == 2
+

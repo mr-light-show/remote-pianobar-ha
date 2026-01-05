@@ -12,18 +12,22 @@ from homeassistant.core import HomeAssistant
 from custom_components.pianobar.const import (
     DOMAIN,
     SERVICE_ADD_SEED,
+    SERVICE_ADD_SHARED_STATION,
     SERVICE_BAN_SONG,
     SERVICE_CREATE_STATION,
+    SERVICE_CREATE_STATION_FROM_MUSIC_ID,
     SERVICE_DELETE_FEEDBACK,
     SERVICE_DELETE_SEED,
     SERVICE_DELETE_STATION,
     SERVICE_EXPLAIN_SONG,
+    SERVICE_GET_GENRES,
     SERVICE_GET_STATION_INFO,
     SERVICE_GET_STATION_MODES,
     SERVICE_GET_UPCOMING,
     SERVICE_LOVE_SONG,
     SERVICE_RENAME_STATION,
     SERVICE_RESET_VOLUME,
+    SERVICE_SEARCH,
     SERVICE_SET_QUICK_MIX,
     SERVICE_SET_STATION_MODE,
     SERVICE_TIRED_OF_SONG,
@@ -587,4 +591,151 @@ async def test_service_reset_volume(
         )
         
         mock_coordinator.send_action.assert_called_once_with("volume.reset")
+
+
+async def test_service_search(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Test search service."""
+    mock_config_entry.add_to_hass(hass)
+    
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.wait_for_response = AsyncMock(
+            return_value={
+                "categories": [
+                    {
+                        "name": "Artists",
+                        "results": [{"name": "Test Artist", "musicId": "R123"}]
+                    }
+                ]
+            }
+        )
+        mock_coordinator.data = {"playing": False}
+        
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SEARCH,
+            {"query": "Test Artist"},
+            blocking=True,
+            return_response=True,
+        )
+        
+        mock_coordinator.send_event.assert_called_once()
+        call_args = mock_coordinator.send_event.call_args[0]
+        assert call_args[0] == "music.search"
+        assert call_args[1]["query"] == "Test Artist"
+        assert "categories" in response
+        assert len(response["categories"]) == 1
+
+
+async def test_service_get_genres(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Test get_genres service."""
+    mock_config_entry.add_to_hass(hass)
+    
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.wait_for_response = AsyncMock(
+            return_value={
+                "categories": [
+                    {
+                        "name": "Rock",
+                        "genres": [{"name": "Classic Rock", "musicId": "G100"}]
+                    }
+                ]
+            }
+        )
+        mock_coordinator.data = {"playing": False}
+        
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_GET_GENRES,
+            {},
+            blocking=True,
+            return_response=True,
+        )
+        
+        mock_coordinator.send_event.assert_called_once_with("station.getGenres", {})
+        assert "categories" in response
+        assert len(response["categories"]) == 1
+
+
+async def test_service_create_station_from_music_id(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Test create_station_from_music_id service."""
+    mock_config_entry.add_to_hass(hass)
+    
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+        
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CREATE_STATION_FROM_MUSIC_ID,
+            {"music_id": "G100"},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_event.assert_called_once()
+        call_args = mock_coordinator.send_event.call_args[0]
+        assert call_args[0] == "station.addGenre"
+        assert call_args[1]["musicId"] == "G100"
+
+
+async def test_service_add_shared_station(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Test add_shared_station service."""
+    mock_config_entry.add_to_hass(hass)
+    
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+        
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_ADD_SHARED_STATION,
+            {"station_id": "1234567890"},
+            blocking=True,
+        )
+        
+        mock_coordinator.send_event.assert_called_once()
+        call_args = mock_coordinator.send_event.call_args[0]
+        assert call_args[0] == "station.addShared"
+        assert call_args[1]["stationId"] == "1234567890"
 
