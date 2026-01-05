@@ -283,7 +283,7 @@ async def test_service_rename_station(
         call_args = mock_coordinator.send_event.call_args[0]
         assert call_args[0] == "station.rename"
         assert call_args[1]["stationId"] == "123"
-        assert call_args[1]["name"] == "New Name"
+        assert call_args[1]["newName"] == "New Name"
 
 
 async def test_service_delete_station(
