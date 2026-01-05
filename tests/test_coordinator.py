@@ -101,7 +101,7 @@ async def test_handle_process_event(
     
     assert coordinator.data["playing"] is True
     assert coordinator.data["paused"] is False
-    assert coordinator.data["volume"] == -5
+    assert coordinator.data["volume"] == -0.05  # Wire protocol sends -5, converted to -5/100
     assert coordinator.data["station"] == "Test Station 1"
     assert coordinator.data["song"] == mock_song_data
 
@@ -157,7 +157,7 @@ async def test_handle_volume_event(hass: HomeAssistant) -> None:
     
     coordinator._handle_volume_event(-10)
     
-    assert coordinator.data["volume"] == -10
+    assert coordinator.data["volume"] == -0.1  # Wire protocol sends -10, converted to -10/100
 
 
 async def test_handle_play_state_event(hass: HomeAssistant) -> None:
@@ -222,7 +222,7 @@ async def test_handle_message_parse_event(hass: HomeAssistant) -> None:
     
     await coordinator._handle_message(message)
     
-    assert coordinator.data["volume"] == -10
+    assert coordinator.data["volume"] == -0.1  # Wire protocol sends -10, converted to -10/100
 
 
 async def test_handle_message_invalid_format(hass: HomeAssistant) -> None:

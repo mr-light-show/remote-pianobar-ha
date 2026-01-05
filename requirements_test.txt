@@ -2,5 +2,4 @@
 
 # This package pulls in all required pytest dependencies with correct versions
 pytest-homeassistant-custom-component>=0.12.0
-pytest-cov>=4.0.0
 

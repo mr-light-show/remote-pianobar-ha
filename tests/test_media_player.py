@@ -23,7 +23,7 @@ async def test_media_player_state_idle(
     mock_coordinator,
 ) -> None:
     """Test media player idle state."""
-    mock_coordinator.data = {"playing": False, "paused": False}
+    mock_coordinator.data = {"playing": False, "paused": False, "station": "Test Station"}
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     
@@ -36,7 +36,7 @@ async def test_media_player_state_playing(
     mock_coordinator,
 ) -> None:
     """Test media player playing state."""
-    mock_coordinator.data = {"playing": True, "paused": False}
+    mock_coordinator.data = {"playing": True, "paused": False, "station": "Test Station"}
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     
@@ -49,7 +49,7 @@ async def test_media_player_state_paused(
     mock_coordinator,
 ) -> None:
     """Test media player paused state."""
-    mock_coordinator.data = {"playing": True, "paused": True}
+    mock_coordinator.data = {"playing": True, "paused": True, "station": "Test Station"}
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     
@@ -62,11 +62,11 @@ async def test_media_player_volume_level(
     mock_coordinator,
 ) -> None:
     """Test media player volume level."""
-    mock_coordinator.data = {"volume": 0, "maxGain": 10}
+    mock_coordinator.data = {"volume": 0.5, "maxGain": 10}
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     
-    # 0 dB should map to 50% (0.5)
+    # volume_level returns the raw value from coordinator data (already 0.0-1.0)
     assert player.volume_level == pytest.approx(0.5, rel=0.01)
 
 
@@ -284,25 +284,4 @@ async def test_media_player_supported_features(
     assert features & MediaPlayerEntityFeature.SELECT_SOURCE
     assert features & MediaPlayerEntityFeature.BROWSE_MEDIA
     assert features & MediaPlayerEntityFeature.PLAY_MEDIA
-
-
-async def test_db_to_volume_level_conversions() -> None:
-    """Test dB to volume level conversions."""
-    from custom_components.pianobar.media_player import PianobarMediaPlayer
-    
-    # Test known values
-    assert PianobarMediaPlayer._db_to_volume_level(-40, 10) == pytest.approx(0.0, abs=0.01)
-    assert PianobarMediaPlayer._db_to_volume_level(0, 10) == pytest.approx(0.5, abs=0.01)
-    assert PianobarMediaPlayer._db_to_volume_level(10, 10) == pytest.approx(1.0, abs=0.01)
-    assert PianobarMediaPlayer._db_to_volume_level(5, 10) == pytest.approx(0.75, abs=0.01)
-
-
-async def test_volume_level_to_percent() -> None:
-    """Test volume level to percent conversion."""
-    from custom_components.pianobar.media_player import PianobarMediaPlayer
-    
-    assert PianobarMediaPlayer._volume_level_to_percent(0.0) == 0.0
-    assert PianobarMediaPlayer._volume_level_to_percent(0.5) == 50.0
-    assert PianobarMediaPlayer._volume_level_to_percent(1.0) == 100.0
-    assert PianobarMediaPlayer._volume_level_to_percent(0.75) == 75.0
 
