@@ -309,6 +309,199 @@ Browse your stations and search for new music using the built-in media browser:
 2. Click "Browse Media"
 3. Navigate through your stations or search for new music
 
+## Usage Examples
+
+### Create Station from Search Results
+
+Automation to search for an artist and create a station from the first result:
+
+```yaml
+automation:
+  - alias: "Create Beatles Station"
+    trigger:
+      - platform: event
+        event_type: create_beatles_station
+    action:
+      - service: pianobar.search
+        target:
+          entity_id: media_player.pianobar
+        data:
+          query: "The Beatles"
+        response_variable: search_results
+      - service: pianobar.create_station_from_music_id
+        target:
+          entity_id: media_player.pianobar
+        data:
+          music_id: "{{ search_results.artists[0].musicId }}"
+```
+
+### Browse Genre Categories and Create Station
+
+Script to browse genres and create a Jazz station:
+
+```yaml
+script:
+  create_jazz_station:
+    sequence:
+      - service: pianobar.get_genres
+        target:
+          entity_id: media_player.pianobar
+        response_variable: genres
+      - service: pianobar.create_station_from_music_id
+        target:
+          entity_id: media_player.pianobar
+        data:
+          music_id: >
+            {% set jazz = genres.categories | selectattr('categoryName', 'eq', 'Jazz') | first %}
+            {{ jazz.musicId }}
+```
+
+### View Upcoming Songs in Queue
+
+Script to get and display upcoming songs:
+
+```yaml
+script:
+  show_upcoming_songs:
+    sequence:
+      - service: pianobar.get_upcoming
+        target:
+          entity_id: media_player.pianobar
+        response_variable: upcoming
+      - service: notify.mobile_app
+        data:
+          title: "Upcoming on Pandora"
+          message: >
+            Next: {{ upcoming.songs[0].title }} by {{ upcoming.songs[0].artist }}
+```
+
+### Manage Station Seeds
+
+Add a song as a seed to your current station:
+
+```yaml
+script:
+  add_song_to_station:
+    sequence:
+      - service: pianobar.search
+        target:
+          entity_id: media_player.pianobar
+        data:
+          query: "Bohemian Rhapsody"
+        response_variable: search_results
+      - service: pianobar.add_seed
+        target:
+          entity_id: media_player.pianobar
+        data:
+          music_id: "{{ search_results.songs[0].musicId }}"
+          station_id: "{{ state_attr('media_player.pianobar', 'station_id') }}"
+```
+
+### Configure QuickMix Stations
+
+Automation to set up QuickMix with specific stations:
+
+```yaml
+automation:
+  - alias: "Setup Work QuickMix"
+    trigger:
+      - platform: time
+        at: "09:00:00"
+    condition:
+      - condition: state
+        entity_id: person.me
+        state: "home"
+    action:
+      - service: pianobar.set_quick_mix
+        target:
+          entity_id: media_player.pianobar
+        data:
+          station_ids:
+            - "3914377188324099182"  # Jazz station
+            - "4506787012345678901"  # Classical station
+      - service: media_player.select_source
+        target:
+          entity_id: media_player.pianobar
+        data:
+          source: "QuickMix"
+```
+
+### Get Song Explanation
+
+Script to see why Pandora chose the current song:
+
+```yaml
+script:
+  explain_current_song:
+    sequence:
+      - service: pianobar.explain_song
+        target:
+          entity_id: media_player.pianobar
+        response_variable: explanation
+      - service: notify.mobile_app
+        data:
+          title: "Why this song?"
+          message: "{{ explanation.explanation }}"
+```
+
+### Manage Station Feedback
+
+View and manage your thumbs up/down history for a station:
+
+```yaml
+script:
+  view_station_feedback:
+    sequence:
+      - service: pianobar.get_station_info
+        target:
+          entity_id: media_player.pianobar
+        data:
+          station_id: "{{ state_attr('media_player.pianobar', 'station_id') }}"
+        response_variable: station_info
+      - service: system_log.write
+        data:
+          message: >
+            Station has {{ station_info.feedback | length }} feedback items
+            Seeds: {{ station_info.music.songs | length }} songs, 
+                   {{ station_info.music.artists | length }} artists
+```
+
+### Add Shared Station from Friend
+
+Add a station shared by a friend via Pandora link:
+
+```yaml
+script:
+  add_friends_station:
+    sequence:
+      - service: pianobar.add_shared_station
+        target:
+          entity_id: media_player.pianobar
+        data:
+          station_id: "1234567890"  # From pandora.com/station/1234567890
+```
+
+### Control Station Playback Mode
+
+Toggle station mode (e.g., discovery mode for more variety):
+
+```yaml
+script:
+  toggle_discovery_mode:
+    sequence:
+      - service: pianobar.get_station_modes
+        target:
+          entity_id: media_player.pianobar
+        response_variable: modes
+      - service: pianobar.set_station_mode
+        target:
+          entity_id: media_player.pianobar
+        data:
+          station_id: "{{ state_attr('media_player.pianobar', 'station_id') }}"
+          mode: >
+            {% if modes.current_mode == 0 %}1{% else %}0{% endif %}
+```
+
 ## Entity Attributes
 
 The media player entity exposes additional attributes for Lovelace card integration:
