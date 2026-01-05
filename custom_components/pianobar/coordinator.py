@@ -321,25 +321,12 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
     def _handle_error_event(self, payload: dict[str, Any]) -> None:
         """Handle error event from backend."""
-        # #region agent log
-        import time
-        with open('/config/pianobar_debug.log', 'a') as f:
-            f.write(json.dumps({"location":"coordinator.py:_handle_error_event:entry","message":"Error event received","data":{"payload":str(payload)},"timestamp":time.time()*1000,"sessionId":"debug-session","hypothesisId":"A"}) + '\n')
-        # #endregion
         operation = payload.get("operation", "")
         message = payload.get("message", "Unknown error")
-        # #region agent log
-        with open('/config/pianobar_debug.log', 'a') as f:
-            f.write(json.dumps({"location":"coordinator.py:_handle_error_event:parsed","message":"Parsed error details","data":{"operation":operation,"message":message},"timestamp":time.time()*1000,"sessionId":"debug-session","hypothesisId":"A"}) + '\n')
-        # #endregion
         
         # Map operation to response key and store error message
         if operation == "song.explain":
             self._response_data["song_explanation"] = ""  # Empty string indicates no explanation
-            # #region agent log
-            with open('/config/pianobar_debug.log', 'a') as f:
-                f.write(json.dumps({"location":"coordinator.py:_handle_error_event:set_response","message":"Set song_explanation response","data":{"response_data_keys":list(self._response_data.keys())},"timestamp":time.time()*1000,"sessionId":"debug-session","hypothesisId":"B"}) + '\n')
-            # #endregion
             _LOGGER.debug("Backend error for %s: %s", operation, message)
         # Add other operations as needed
 

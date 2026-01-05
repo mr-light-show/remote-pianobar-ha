@@ -129,24 +129,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_explain_song(call: ServiceCall) -> dict[str, Any]:
         """Handle explain_song service call."""
-        # #region agent log
-        import time
-        with open('/config/pianobar_debug.log', 'a') as f:
-            f.write(json.dumps({"location":"__init__.py:async_explain_song:entry","message":"Service called","data":{},"timestamp":time.time()*1000,"sessionId":"debug-session","hypothesisId":"C"}) + '\n')
-        # #endregion
+        _LOGGER.debug("explain_song service called")
         coordinator = hass.data[DOMAIN][entry.entry_id]
         await coordinator.send_action("song.explain")
         explanation = await coordinator.wait_for_response("song_explanation")
-        # #region agent log
-        with open('/config/pianobar_debug.log', 'a') as f:
-            f.write(json.dumps({"location":"__init__.py:async_explain_song:got_response","message":"Received response from wait_for_response","data":{"explanation":str(explanation),"explanation_type":str(type(explanation)),"explanation_is_none":explanation is None},"timestamp":time.time()*1000,"sessionId":"debug-session","hypothesisId":"B,C"}) + '\n')
-        # #endregion
-        result = {"explanation": explanation or ""}
-        # #region agent log
-        with open('/config/pianobar_debug.log', 'a') as f:
-            f.write(json.dumps({"location":"__init__.py:async_explain_song:return","message":"Returning result","data":{"result":result},"timestamp":time.time()*1000,"sessionId":"debug-session","hypothesisId":"C"}) + '\n')
-        # #endregion
-        return result
+        _LOGGER.debug("Got explanation: %s", explanation)
+        return {"explanation": explanation or ""}
 
     async def async_get_upcoming(call: ServiceCall) -> dict[str, Any]:
         """Handle get_upcoming service call."""
