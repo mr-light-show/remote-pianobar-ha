@@ -249,6 +249,58 @@ target:
   entity_id: media_player.pianobar
 ```
 
+#### Search for Music
+
+Search for artists and songs to create stations:
+
+```yaml
+service: pianobar.search
+target:
+  entity_id: media_player.pianobar
+data:
+  query: "The Beatles"
+response_variable: search_results
+```
+
+Returns search results with categories for Artists and Songs, each containing musicId values for creating stations.
+
+#### Get Genre Categories
+
+Get available genre categories for creating genre-based stations:
+
+```yaml
+service: pianobar.get_genres
+target:
+  entity_id: media_player.pianobar
+response_variable: genres
+```
+
+Returns genre categories (Rock, Pop, Jazz, etc.) with musicId values for each genre.
+
+#### Create Station from Music ID
+
+Create a new station from a search result or genre (uses musicId from search or get_genres):
+
+```yaml
+service: pianobar.create_station_from_music_id
+target:
+  entity_id: media_player.pianobar
+data:
+  music_id: "R12345"  # From search results or genre list
+```
+
+#### Add Shared Station
+
+Add a shared station using its numeric ID from a Pandora share link:
+
+```yaml
+service: pianobar.add_shared_station
+target:
+  entity_id: media_player.pianobar
+data:
+  station_id: "1234567890"  # Numeric ID from pandora.com/station/1234567890
+```
+
 ## Media Browser
 
 Browse your stations and search for new music using the built-in media browser:
@@ -276,6 +328,10 @@ Array of custom actions this entity supports:
 - `get_station_modes`, `set_station_mode` - Station playback modes
 - `toggle_playback` - Toggle play/pause
 - `reset_volume` - Reset volume to default
+- `search` - Search for artists and songs
+- `get_genres` - Get genre categories
+- `create_station_from_music_id` - Create station from search/genre result
+- `add_shared_station` - Add shared station by ID
 
 ### `rating`
 
