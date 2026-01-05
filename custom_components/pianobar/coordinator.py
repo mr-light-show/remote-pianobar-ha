@@ -210,6 +210,10 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._handle_station_info_event(event_payload)
             elif event_name == "stationModes":
                 self._handle_station_modes_event(event_payload)
+            elif event_name == "searchResults":
+                self._handle_search_results_event(event_payload)
+            elif event_name == "genres":
+                self._handle_genres_event(event_payload)
                 
             # Notify listeners of state change
             self.async_set_updated_data(self.data)
@@ -304,6 +308,14 @@ class PianobarCoordinator(DataUpdateCoordinator):
     def _handle_station_modes_event(self, payload: dict[str, Any]) -> None:
         """Handle stationModes event (station playback modes)."""
         self._response_data["station_modes"] = payload.get("modes", [])
+
+    def _handle_search_results_event(self, payload: dict[str, Any]) -> None:
+        """Handle searchResults event (music search results)."""
+        self._response_data["search_results"] = payload
+
+    def _handle_genres_event(self, payload: dict[str, Any]) -> None:
+        """Handle genres event (genre categories)."""
+        self._response_data["genres"] = payload
 
     def get_response_data(self, key: str) -> Any:
         """Get and clear response data for a given key."""

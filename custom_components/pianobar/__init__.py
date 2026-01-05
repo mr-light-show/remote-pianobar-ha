@@ -14,12 +14,15 @@ import voluptuous as vol
 from .const import (
     DOMAIN,
     SERVICE_ADD_SEED,
+    SERVICE_ADD_SHARED_STATION,
     SERVICE_BAN_SONG,
     SERVICE_CREATE_STATION,
+    SERVICE_CREATE_STATION_FROM_MUSIC_ID,
     SERVICE_DELETE_FEEDBACK,
     SERVICE_DELETE_SEED,
     SERVICE_DELETE_STATION,
     SERVICE_EXPLAIN_SONG,
+    SERVICE_GET_GENRES,
     SERVICE_GET_STATION_INFO,
     SERVICE_GET_STATION_MODES,
     SERVICE_GET_UPCOMING,
@@ -27,6 +30,7 @@ from .const import (
     SERVICE_RECONNECT,
     SERVICE_RENAME_STATION,
     SERVICE_RESET_VOLUME,
+    SERVICE_SEARCH,
     SERVICE_SET_QUICK_MIX,
     SERVICE_SET_STATION_MODE,
     SERVICE_TIRED_OF_SONG,
@@ -222,6 +226,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = hass.data[DOMAIN][entry.entry_id]
         await coordinator.send_action("volume.reset")
 
+    async def async_search(call: ServiceCall) -> dict[str, Any]:
+        """Handle search service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        query = call.data.get("query")
+        
+        await coordinator.send_event(
+            "music.search",
+            {"query": query}
+        )
+        search_results = await coordinator.wait_for_response("search_results")
+        return search_results or {"categories": []}
+
+    async def async_get_genres(call: ServiceCall) -> dict[str, Any]:
+        """Handle get_genres service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        
+        await coordinator.send_event(
+            "station.getGenres",
+            {}
+        )
+        genres = await coordinator.wait_for_response("genres")
+        return genres or {"categories": []}
+
+    async def async_create_station_from_music_id(call: ServiceCall) -> None:
+        """Handle create_station_from_music_id service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        music_id = call.data.get("music_id")
+        
+        await coordinator.send_event(
+            "station.addGenre",
+            {"musicId": music_id}
+        )
+
+    async def async_add_shared_station(call: ServiceCall) -> None:
+        """Handle add_shared_station service call."""
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        station_id = call.data.get("station_id")
+        
+        await coordinator.send_event(
+            "station.addShared",
+            {"stationId": station_id}
+        )
+
     # Register services
     hass.services.async_register(
         DOMAIN,
@@ -377,6 +424,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         SERVICE_RESET_VOLUME,
         async_reset_volume,
         schema=vol.Schema({}),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEARCH,
+        async_search,
+        schema=vol.Schema({
+            vol.Required("query"): cv.string,
+        }),
+        supports_response="optional",
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_GENRES,
+        async_get_genres,
+        schema=vol.Schema({}),
+        supports_response="optional",
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CREATE_STATION_FROM_MUSIC_ID,
+        async_create_station_from_music_id,
+        schema=vol.Schema({
+            vol.Required("music_id"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ADD_SHARED_STATION,
+        async_add_shared_station,
+        schema=vol.Schema({
+            vol.Required("station_id"): cv.string,
+        }),
     )
 
     return True

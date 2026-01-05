@@ -228,3 +228,53 @@ reset_volume:
   description: Reset volume to 50% default
   fields: {}
 
+search:
+  name: Search for music
+  description: Search for artists and songs
+  fields:
+    query:
+      name: Search query
+      description: Search term for artists or songs
+      required: true
+      selector:
+        text:
+  response:
+    type: object
+    properties:
+      categories:
+        type: array
+        description: Array of search result categories (Artists, Songs)
+
+get_genres:
+  name: Get genre categories
+  description: Get list of genre categories for creating stations
+  fields: {}
+  response:
+    type: object
+    properties:
+      categories:
+        type: array
+        description: Array of genre category objects
+
+create_station_from_music_id:
+  name: Create station from music ID
+  description: Create a new station from a search result or genre music ID
+  fields:
+    music_id:
+      name: Music ID
+      description: Music ID from search results or genre list
+      required: true
+      selector:
+        text:
+
+add_shared_station:
+  name: Add shared station
+  description: Add a shared station by its numeric ID
+  fields:
+    station_id:
+      name: Station ID
+      description: Numeric station ID from Pandora share link (digits only)
+      required: true
+      selector:
+        text:
+

@@ -164,6 +164,10 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
                 "set_station_mode",
                 "toggle_playback",
                 "reset_volume",
+                "search",
+                "get_genres",
+                "create_station_from_music_id",
+                "add_shared_station",
             ],
             # Full station data: id, name, isQuickMix, isQuickMixed
             "stations": self.coordinator.data.get("stations", []),

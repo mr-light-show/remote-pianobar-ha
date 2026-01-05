@@ -33,6 +33,10 @@ SERVICE_GET_STATION_MODES = "get_station_modes"
 SERVICE_SET_STATION_MODE = "set_station_mode"
 SERVICE_TOGGLE_PLAYBACK = "toggle_playback"
 SERVICE_RESET_VOLUME = "reset_volume"
+SERVICE_SEARCH = "search"
+SERVICE_GET_GENRES = "get_genres"
+SERVICE_CREATE_STATION_FROM_MUSIC_ID = "create_station_from_music_id"
+SERVICE_ADD_SHARED_STATION = "add_shared_station"
 
 # Media browser
 MEDIA_TYPE_STATION = "station"
