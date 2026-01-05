@@ -129,11 +129,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_explain_song(call: ServiceCall) -> dict[str, Any]:
         """Handle explain_song service call."""
-        _LOGGER.debug("explain_song service called")
         coordinator = hass.data[DOMAIN][entry.entry_id]
         await coordinator.send_action("song.explain")
         explanation = await coordinator.wait_for_response("song_explanation")
-        _LOGGER.debug("Got explanation: %s", explanation)
         return {"explanation": explanation or ""}
 
     async def async_get_upcoming(call: ServiceCall) -> dict[str, Any]:

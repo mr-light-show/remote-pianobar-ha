@@ -328,6 +328,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
         if operation == "song.explain":
             self._response_data["song_explanation"] = ""  # Empty string indicates no explanation
             _LOGGER.debug("Backend error for %s: %s", operation, message)
+        elif operation == "query.upcoming":
+            self._response_data["upcoming"] = []  # Empty list indicates no upcoming songs
+            _LOGGER.debug("Backend error for %s: %s", operation, message)
         # Add other operations as needed
 
     def get_response_data(self, key: str) -> Any:
