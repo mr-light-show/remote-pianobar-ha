@@ -69,12 +69,6 @@ explain_song:
       integration: pianobar
       domain: media_player
   fields: {}
-  response:
-    type: object
-    properties:
-      explanation:
-        type: string
-        description: Text explanation from Pandora
 
 get_upcoming:
   name: Get upcoming songs
@@ -84,12 +78,6 @@ get_upcoming:
       integration: pianobar
       domain: media_player
   fields: {}
-  response:
-    type: object
-    properties:
-      songs:
-        type: array
-        description: Array of upcoming song objects
 
 set_quick_mix:
   name: Set QuickMix
@@ -133,21 +121,6 @@ get_station_info:
       required: true
       selector:
         text:
-  response:
-    type: object
-    properties:
-      artistSeeds:
-        type: array
-        description: Artist seeds for this station
-      songSeeds:
-        type: array
-        description: Song seeds for this station
-      stationSeeds:
-        type: array
-        description: Station seeds for this station
-      feedback:
-        type: array
-        description: Thumbs up/down feedback history
 
 delete_seed:
   name: Delete seed from station
@@ -207,12 +180,6 @@ get_station_modes:
       required: true
       selector:
         text:
-  response:
-    type: object
-    properties:
-      modes:
-        type: array
-        description: Array of available playback modes
 
 set_station_mode:
   name: Set station mode
@@ -258,12 +225,6 @@ search:
       required: true
       selector:
         text:
-  response:
-    type: object
-    properties:
-      categories:
-        type: array
-        description: Array of search result categories (Artists, Songs)
 
 get_genres:
   name: Get genre categories
@@ -273,12 +234,6 @@ get_genres:
       integration: pianobar
       domain: media_player
   fields: {}
-  response:
-    type: object
-    properties:
-      categories:
-        type: array
-        description: Array of genre category objects
 
 create_station_from_music_id:
   name: Create station from music ID
