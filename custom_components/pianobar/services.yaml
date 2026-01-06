@@ -64,6 +64,10 @@ reconnect:
 explain_song:
   name: Explain song
   description: Get Pandora's explanation for why the current song was chosen
+  target:
+    entity:
+      integration: pianobar
+      domain: media_player
   fields: {}
   response:
     type: object
@@ -75,6 +79,10 @@ explain_song:
 get_upcoming:
   name: Get upcoming songs
   description: Get list of upcoming songs in the queue
+  target:
+    entity:
+      integration: pianobar
+      domain: media_player
   fields: {}
   response:
     type: object
@@ -114,6 +122,10 @@ add_seed:
 get_station_info:
   name: Get station info
   description: Get station seeds and feedback history
+  target:
+    entity:
+      integration: pianobar
+      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -184,6 +196,10 @@ delete_feedback:
 get_station_modes:
   name: Get station modes
   description: Get available playback modes for a station
+  target:
+    entity:
+      integration: pianobar
+      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -231,6 +247,10 @@ reset_volume:
 search:
   name: Search for music
   description: Search for artists and songs
+  target:
+    entity:
+      integration: pianobar
+      domain: media_player
   fields:
     query:
       name: Search query
@@ -248,6 +268,10 @@ search:
 get_genres:
   name: Get genre categories
   description: Get list of genre categories for creating stations
+  target:
+    entity:
+      integration: pianobar
+      domain: media_player
   fields: {}
   response:
     type: object
