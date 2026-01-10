@@ -1,37 +1,21 @@
 love_song:
   name: Love song
   description: Give the current song a thumbs up
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 ban_song:
   name: Ban song
   description: Give the current song a thumbs down (removes from station)
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 tired_of_song:
   name: Tired of song
   description: Mark current song as tired (temporarily skip)
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 create_station:
   name: Create station
   description: Create a new station from the current song or artist
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     type:
       name: Type
@@ -47,10 +31,6 @@ create_station:
 rename_station:
   name: Rename station
   description: Rename an existing station
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -68,10 +48,6 @@ rename_station:
 delete_station:
   name: Delete station
   description: Delete a station
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -83,37 +59,21 @@ delete_station:
 reconnect:
   name: Reconnect
   description: Force reconnect to remote-pianobar WebSocket
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 explain_song:
   name: Explain song
   description: Get Pandora's explanation for why the current song was chosen
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 get_upcoming:
   name: Get upcoming songs
   description: Get list of upcoming songs in the queue
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 set_quick_mix:
   name: Set QuickMix
   description: Configure which stations are included in QuickMix
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_ids:
       name: Station IDs
@@ -125,10 +85,6 @@ set_quick_mix:
 add_seed:
   name: Add seed to station
   description: Add an artist or song as a seed to an existing station
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     music_id:
       name: Music ID
@@ -146,10 +102,6 @@ add_seed:
 get_station_info:
   name: Get station info
   description: Get station seeds and feedback history
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -161,10 +113,6 @@ get_station_info:
 delete_seed:
   name: Delete seed from station
   description: Remove a seed from a station
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     seed_id:
       name: Seed ID
@@ -192,10 +140,6 @@ delete_seed:
 delete_feedback:
   name: Delete feedback
   description: Remove a thumbs up/down from station history
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     feedback_id:
       name: Feedback ID
@@ -213,10 +157,6 @@ delete_feedback:
 get_station_modes:
   name: Get station modes
   description: Get available playback modes for a station
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -228,10 +168,6 @@ get_station_modes:
 set_station_mode:
   name: Set station mode
   description: Set the playback mode for a station
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -252,28 +188,16 @@ set_station_mode:
 toggle_playback:
   name: Toggle playback
   description: Toggle between play and pause
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 reset_volume:
   name: Reset volume
   description: Reset volume to 50% default
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 search:
   name: Search for music
   description: Search for artists and songs
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     query:
       name: Search query
@@ -285,19 +209,11 @@ search:
 get_genres:
   name: Get genre categories
   description: Get list of genre categories for creating stations
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields: {}
 
 create_station_from_music_id:
   name: Create station from music ID
   description: Create a new station from a search result or genre music ID
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     music_id:
       name: Music ID
@@ -309,10 +225,6 @@ create_station_from_music_id:
 add_shared_station:
   name: Add shared station
   description: Add a shared station by its numeric ID
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID

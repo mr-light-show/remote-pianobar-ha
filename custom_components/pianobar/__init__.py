@@ -49,12 +49,13 @@ def _get_coordinator_from_call(
     call: ServiceCall
 ) -> PianobarCoordinator:
     """Get coordinator from service call target or default to first instance."""
-    # Try to get entity_id from target
-    entity_ids = call.data.get("entity_id")
+    # Extract entity_id - HA puts it in call.data when using targets
+    entity_id = call.data.get("entity_id")
     
-    if entity_ids:
-        # Use first entity if multiple provided
-        entity_id = entity_ids[0] if isinstance(entity_ids, list) else entity_ids
+    if entity_id:
+        # Handle both single entity and list
+        if isinstance(entity_id, list):
+            entity_id = entity_id[0]
         
         # Look up entity to get its entry_id
         entity_registry = er.async_get(hass)
@@ -287,21 +288,27 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_LOVE_SONG,
         async_love_song,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
     )
 
     hass.services.async_register(
         DOMAIN,
         SERVICE_BAN_SONG,
         async_ban_song,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
     )
 
     hass.services.async_register(
         DOMAIN,
         SERVICE_TIRED_OF_SONG,
         async_tired_of_song,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
     )
 
     hass.services.async_register(
@@ -309,6 +316,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_CREATE_STATION,
         async_create_station,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Optional("type", default="song"): cv.string,
         }),
     )
@@ -318,6 +326,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_RENAME_STATION,
         async_rename_station,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_id"): cv.string,
             vol.Required("name"): cv.string,
         }),
@@ -328,6 +337,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_DELETE_STATION,
         async_delete_station,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_id"): cv.string,
         }),
     )
@@ -336,14 +346,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_RECONNECT,
         async_reconnect,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
     )
 
     hass.services.async_register(
         DOMAIN,
         SERVICE_EXPLAIN_SONG,
         async_explain_song,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
         supports_response="optional",
     )
 
@@ -351,7 +365,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_GET_UPCOMING,
         async_get_upcoming,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
         supports_response="optional",
     )
 
@@ -360,6 +376,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_SET_QUICK_MIX,
         async_set_quick_mix,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_ids"): [cv.string],
         }),
     )
@@ -369,6 +386,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_ADD_SEED,
         async_add_seed,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("music_id"): cv.string,
             vol.Required("station_id"): cv.string,
         }),
@@ -379,6 +397,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_GET_STATION_INFO,
         async_get_station_info,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_id"): cv.string,
         }),
         supports_response="optional",
@@ -389,6 +408,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_DELETE_SEED,
         async_delete_seed,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("seed_id"): cv.string,
             vol.Required("seed_type"): vol.In(["artist", "song", "station"]),
             vol.Required("station_id"): cv.string,
@@ -400,6 +420,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_DELETE_FEEDBACK,
         async_delete_feedback,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("feedback_id"): cv.string,
             vol.Required("station_id"): cv.string,
         }),
@@ -410,6 +431,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_GET_STATION_MODES,
         async_get_station_modes,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_id"): cv.string,
         }),
         supports_response="optional",
@@ -420,6 +442,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_SET_STATION_MODE,
         async_set_station_mode,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_id"): cv.string,
             vol.Required("mode_id"): vol.Coerce(int),
         }),
@@ -429,14 +452,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_TOGGLE_PLAYBACK,
         async_toggle_playback,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
     )
 
     hass.services.async_register(
         DOMAIN,
         SERVICE_RESET_VOLUME,
         async_reset_volume,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
     )
 
     hass.services.async_register(
@@ -444,6 +471,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_SEARCH,
         async_search,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("query"): cv.string,
         }),
         supports_response="optional",
@@ -453,7 +481,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_GET_GENRES,
         async_get_genres,
-        schema=vol.Schema({}),
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
         supports_response="optional",
     )
 
@@ -462,6 +492,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_CREATE_STATION_FROM_MUSIC_ID,
         async_create_station_from_music_id,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("music_id"): cv.string,
         }),
     )
@@ -471,6 +502,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_ADD_SHARED_STATION,
         async_add_shared_station,
         schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_id"): cv.string,
         }),
     )

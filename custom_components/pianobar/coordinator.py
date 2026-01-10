@@ -340,6 +340,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
     async def wait_for_response(self, key: str, timeout: float = 5.0) -> Any:
         """Wait for response data with timeout."""
         import asyncio
+        # Clear any stale data for this key before waiting for fresh response
+        self._response_data.pop(key, None)
         start_time = asyncio.get_event_loop().time()
         while asyncio.get_event_loop().time() - start_time < timeout:
             if key in self._response_data:
