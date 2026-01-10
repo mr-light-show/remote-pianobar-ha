@@ -110,10 +110,6 @@ add_seed:
 get_station_info:
   name: Get station info
   description: Get station seeds and feedback history
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -169,10 +165,6 @@ delete_feedback:
 get_station_modes:
   name: Get station modes
   description: Get available playback modes for a station
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     station_id:
       name: Station ID
@@ -214,10 +206,6 @@ reset_volume:
 search:
   name: Search for music
   description: Search for artists and songs
-  target:
-    entity:
-      integration: pianobar
-      domain: media_player
   fields:
     query:
       name: Search query
