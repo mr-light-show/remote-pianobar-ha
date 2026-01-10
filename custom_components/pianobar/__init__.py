@@ -7,7 +7,8 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 
@@ -43,45 +44,57 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SELECT]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Pianobar from a config entry."""
-    host = entry.data[CONF_HOST]
-    port = entry.data[CONF_PORT]
+def _get_coordinator_from_call(
+    hass: HomeAssistant,
+    call: ServiceCall
+) -> PianobarCoordinator:
+    """Get coordinator from service call target or default to first instance."""
+    # Try to get entity_id from target
+    entity_ids = call.data.get("entity_id")
+    
+    if entity_ids:
+        # Use first entity if multiple provided
+        entity_id = entity_ids[0] if isinstance(entity_ids, list) else entity_ids
+        
+        # Look up entity to get its entry_id
+        entity_registry = er.async_get(hass)
+        entity_entry = entity_registry.async_get(entity_id)
+        
+        if entity_entry and entity_entry.config_entry_id:
+            coordinator = hass.data[DOMAIN].get(entity_entry.config_entry_id)
+            if coordinator:
+                return coordinator
+    
+    # Fallback: use first available instance
+    if DOMAIN in hass.data and hass.data[DOMAIN]:
+        entry_ids = list(hass.data[DOMAIN].keys())
+        if entry_ids:
+            return hass.data[DOMAIN][entry_ids[0]]
+    
+    raise ServiceValidationError("No pianobar instance found")
 
-    coordinator = PianobarCoordinator(hass, host, port)
 
-    try:
-        await coordinator.async_connect()
-    except Exception as err:
-        _LOGGER.error("Failed to connect to Pianobar: %s", err)
-        raise ConfigEntryNotReady from err
-
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = coordinator
-
-    # Reload entry when options change (host/port updated)
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Pianobar component (register domain-level services)."""
+    
     async def async_love_song(call: ServiceCall) -> None:
         """Handle love_song service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         await coordinator.send_action("song.love")
 
     async def async_ban_song(call: ServiceCall) -> None:
         """Handle ban_song service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         await coordinator.send_action("song.ban")
 
     async def async_tired_of_song(call: ServiceCall) -> None:
         """Handle tired_of_song service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         await coordinator.send_action("song.tired")
 
     async def async_create_station(call: ServiceCall) -> None:
         """Handle create_station service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_type = call.data.get("type", "song")
         track_token = coordinator.data.get("song", {}).get("trackToken")
         
@@ -96,7 +109,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_rename_station(call: ServiceCall) -> None:
         """Handle rename_station service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_id = call.data.get("station_id")
         new_name = call.data.get("name")
         
@@ -107,7 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_delete_station(call: ServiceCall) -> None:
         """Handle delete_station service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_id = call.data.get("station_id")
         
         await coordinator.send_event(
@@ -117,7 +130,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_reconnect(call: ServiceCall) -> None:
         """Handle reconnect service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         if not coordinator.is_connected:
             try:
                 await coordinator.async_connect()
@@ -129,27 +142,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_explain_song(call: ServiceCall) -> dict[str, Any]:
         """Handle explain_song service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         await coordinator.send_action("song.explain")
         explanation = await coordinator.wait_for_response("song_explanation")
         return {"explanation": explanation or ""}
 
     async def async_get_upcoming(call: ServiceCall) -> dict[str, Any]:
         """Handle get_upcoming service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         await coordinator.send_action("query.upcoming")
         upcoming = await coordinator.wait_for_response("upcoming")
         return {"songs": upcoming or []}
 
     async def async_set_quick_mix(call: ServiceCall) -> None:
         """Handle set_quick_mix service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_ids = call.data.get("station_ids", [])
         await coordinator.send_event("station.setQuickMix", station_ids)
 
     async def async_add_seed(call: ServiceCall) -> None:
         """Handle add_seed service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         music_id = call.data.get("music_id")
         station_id = call.data.get("station_id")
         
@@ -160,7 +173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_get_station_info(call: ServiceCall) -> dict[str, Any]:
         """Handle get_station_info service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_id = call.data.get("station_id")
         
         await coordinator.send_event(
@@ -172,7 +185,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_delete_seed(call: ServiceCall) -> None:
         """Handle delete_seed service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         seed_id = call.data.get("seed_id")
         seed_type = call.data.get("seed_type")
         station_id = call.data.get("station_id")
@@ -184,7 +197,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_delete_feedback(call: ServiceCall) -> None:
         """Handle delete_feedback service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         feedback_id = call.data.get("feedback_id")
         station_id = call.data.get("station_id")
         
@@ -195,7 +208,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_get_station_modes(call: ServiceCall) -> dict[str, Any]:
         """Handle get_station_modes service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_id = call.data.get("station_id")
         
         await coordinator.send_event(
@@ -207,7 +220,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_set_station_mode(call: ServiceCall) -> None:
         """Handle set_station_mode service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_id = call.data.get("station_id")
         mode_id = call.data.get("mode_id")
         
@@ -218,17 +231,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_toggle_playback(call: ServiceCall) -> None:
         """Handle toggle_playback service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         await coordinator.send_action("playback.toggle")
 
     async def async_reset_volume(call: ServiceCall) -> None:
         """Handle reset_volume service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         await coordinator.send_action("volume.reset")
 
     async def async_search(call: ServiceCall) -> dict[str, Any]:
         """Handle search service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         query = call.data.get("query")
         
         await coordinator.send_event(
@@ -240,7 +253,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_get_genres(call: ServiceCall) -> dict[str, Any]:
         """Handle get_genres service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         
         await coordinator.send_event(
             "station.getGenres",
@@ -251,7 +264,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_create_station_from_music_id(call: ServiceCall) -> None:
         """Handle create_station_from_music_id service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         music_id = call.data.get("music_id")
         
         await coordinator.send_event(
@@ -261,7 +274,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def async_add_shared_station(call: ServiceCall) -> None:
         """Handle add_shared_station service call."""
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = _get_coordinator_from_call(hass, call)
         station_id = call.data.get("station_id")
         
         await coordinator.send_event(
@@ -269,7 +282,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             {"stationId": station_id}
         )
 
-    # Register services
+    # Register all services (done once at domain level)
     hass.services.async_register(
         DOMAIN,
         SERVICE_LOVE_SONG,
@@ -461,6 +474,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             vol.Required("station_id"): cv.string,
         }),
     )
+
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Pianobar from a config entry."""
+    host = entry.data[CONF_HOST]
+    port = entry.data[CONF_PORT]
+
+    coordinator = PianobarCoordinator(hass, host, port)
+
+    try:
+        await coordinator.async_connect()
+    except Exception as err:
+        _LOGGER.error("Failed to connect to Pianobar: %s", err)
+        raise ConfigEntryNotReady from err
+
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    # Reload entry when options change (host/port updated)
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
