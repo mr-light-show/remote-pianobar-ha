@@ -2,16 +2,28 @@ love_song:
   name: Love song
   description: Give the current song a thumbs up
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 ban_song:
   name: Ban song
   description: Give the current song a thumbs down (removes from station)
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 tired_of_song:
   name: Tired of song
   description: Mark current song as tired (temporarily skip)
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 create_station:
   name: Create station
@@ -27,6 +39,10 @@ create_station:
           options:
             - "song"
             - "artist"
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 rename_station:
   name: Rename station
@@ -44,6 +60,10 @@ rename_station:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 delete_station:
   name: Delete station
@@ -55,21 +75,37 @@ delete_station:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 reconnect:
   name: Reconnect
   description: Force reconnect to remote-pianobar WebSocket
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 explain_song:
   name: Explain song
   description: Get Pandora's explanation for why the current song was chosen
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 get_upcoming:
   name: Get upcoming songs
   description: Get list of upcoming songs in the queue
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 set_quick_mix:
   name: Set QuickMix
@@ -81,6 +117,10 @@ set_quick_mix:
       required: true
       selector:
         object:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 add_seed:
   name: Add seed to station
@@ -98,6 +138,10 @@ add_seed:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 get_station_info:
   name: Get station info
@@ -109,6 +153,10 @@ get_station_info:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 delete_seed:
   name: Delete seed from station
@@ -136,6 +184,10 @@ delete_seed:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 delete_feedback:
   name: Delete feedback
@@ -153,6 +205,10 @@ delete_feedback:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 get_station_modes:
   name: Get station modes
@@ -164,6 +220,10 @@ get_station_modes:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 set_station_mode:
   name: Set station mode
@@ -184,16 +244,28 @@ set_station_mode:
           min: 0
           max: 3
           mode: slider
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 toggle_playback:
   name: Toggle playback
   description: Toggle between play and pause
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 reset_volume:
   name: Reset volume
   description: Reset volume to 50% default
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 search:
   name: Search for music
@@ -205,11 +277,19 @@ search:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 get_genres:
   name: Get genre categories
   description: Get list of genre categories for creating stations
   fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 create_station_from_music_id:
   name: Create station from music ID
@@ -221,6 +301,10 @@ create_station_from_music_id:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
 
 add_shared_station:
   name: Add shared station
@@ -232,3 +316,7 @@ add_shared_station:
       required: true
       selector:
         text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar

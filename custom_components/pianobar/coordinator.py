@@ -49,6 +49,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             "station": "",
             "stationId": "",
             "stations": [],
+            "pandora_connected": True,
         }
         
         # Response data storage (for service calls that return data)
@@ -216,6 +217,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._handle_genres_event(event_payload)
             elif event_name == "error":
                 self._handle_error_event(event_payload)
+            elif event_name == "pandora.disconnected":
+                self._handle_pandora_disconnected_event(event_payload)
                 
             # Notify listeners of state change
             self.async_set_updated_data(self.data)
@@ -227,6 +230,13 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
     def _handle_process_event(self, payload: dict[str, Any]) -> None:
         """Handle process event (full state update)."""
+        # Only treat as connected when we have meaningful state (song, playing, or non-empty station)
+        if (
+            payload.get("song") is not None
+            or payload.get("playing") is True
+            or (payload.get("station") and str(payload.get("station", "")).strip())
+        ):
+            self.data["pandora_connected"] = True
         # Wire protocol sends volume as 0-100, HA expects 0.0-1.0
         wire_volume = payload.get("volume", 0)
         self.data.update({
@@ -282,6 +292,22 @@ class PianobarCoordinator(DataUpdateCoordinator):
     def _handle_stations_event(self, payload: list[dict[str, Any]]) -> None:
         """Handle stations event (station list update)."""
         self.data["stations"] = payload
+        if payload:
+            self.data["pandora_connected"] = True
+
+    def _handle_pandora_disconnected_event(self, payload: dict[str, Any]) -> None:
+        """Handle pandora.disconnected (Pandora session ended; keep stations)."""
+        _LOGGER.debug("Pandora disconnected: %s", payload.get("reason", ""))
+        self.data["pandora_connected"] = False
+        # Clear playback state but keep stations
+        self.data.update({
+            "playing": False,
+            "paused": False,
+            "station": "",
+            "stationId": "",
+        })
+        for key in ("song", "elapsed", "position_updated_at"):
+            self.data.pop(key, None)
 
     def _clear_playback_state(self) -> None:
         """Clear playback state (used on disconnect/stopped)."""
@@ -323,6 +349,37 @@ class PianobarCoordinator(DataUpdateCoordinator):
         """Handle error event from backend."""
         operation = payload.get("operation", "")
         message = payload.get("message", "Unknown error")
+        
+        # Play/reconnect failed: revert playing state so UI shows Play again
+        if operation in ("playback.play", "app.pandora-reconnect"):
+            self.data["playing"] = False
+            for key in ("song", "elapsed", "position_updated_at"):
+                self.data.pop(key, None)
+        
+        # station.change "Station not found": remove station from list, clear current if needed
+        if operation == "station.change" and (
+            "not found" in message.lower() or payload.get("stationId")
+        ):
+            station_id = payload.get("stationId") or self.data.get("stationId")
+            if station_id:
+                stations = self.data.get("stations", [])
+                self.data["stations"] = [s for s in stations if s.get("id") != station_id]
+                if self.data.get("stationId") == station_id:
+                    self.data["station"] = ""
+                    self.data["stationId"] = ""
+            _LOGGER.debug("Station not found, updated list: %s", operation)
+            return
+        # app.pandora-reconnect "Last station was deleted": remove station from list
+        if operation == "app.pandora-reconnect" and "last station" in message.lower():
+            station_id = payload.get("stationId")
+            if station_id:
+                stations = self.data.get("stations", [])
+                self.data["stations"] = [s for s in stations if s.get("id") != station_id]
+                if self.data.get("stationId") == station_id:
+                    self.data["station"] = ""
+                    self.data["stationId"] = ""
+            _LOGGER.debug("Last station deleted after reconnect: %s", operation)
+            return
         
         # Map operation to response key and store error message
         if operation == "song.explain":
