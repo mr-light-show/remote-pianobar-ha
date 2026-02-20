@@ -25,7 +25,7 @@ You need **remote-pianobar** installed and running on a **separate machine** (e.
 
 ```mermaid
 flowchart LR
-  subgraph rpMachine [remote-pianobar<br>machine or VM]
+  subgraph rpMachine [remote-pianobar machine / VM]
     rp[remote-pianobar<br>Pandora + WebSocket]
   end
   subgraph ha [Home Assistant server]
