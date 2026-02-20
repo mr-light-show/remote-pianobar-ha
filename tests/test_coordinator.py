@@ -413,3 +413,84 @@ async def test_handle_genres_event(hass: HomeAssistant) -> None:
     assert coordinator._response_data["genres"]["categories"][0]["name"] == "Rock"
     assert len(coordinator._response_data["genres"]["categories"][0]["genres"]) == 2
 
+
+async def test_handle_pandora_disconnected_event(hass: HomeAssistant) -> None:
+    """Test handling pandora.disconnected event."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data["pandora_connected"] = True
+    coordinator.data["playing"] = True
+    coordinator.data["station"] = "Test Station"
+    coordinator.data["stationId"] = "123"
+    coordinator.data["song"] = {"title": "Song"}
+    coordinator.data["elapsed"] = 30
+    
+    coordinator._handle_pandora_disconnected_event({"reason": "logout"})
+    
+    assert coordinator.data["pandora_connected"] is False
+    assert coordinator.data["playing"] is False
+    assert coordinator.data["paused"] is False
+    assert coordinator.data["station"] == ""
+    assert coordinator.data["stationId"] == ""
+    assert "song" not in coordinator.data
+    assert "elapsed" not in coordinator.data
+
+
+async def test_handle_error_event_playback_play(hass: HomeAssistant) -> None:
+    """Test error event for playback.play reverts playing state."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data["playing"] = True
+    coordinator.data["song"] = {"title": "Song"}
+    coordinator.data["elapsed"] = 10
+    
+    coordinator._handle_error_event({"operation": "playback.play", "message": "Failed"})
+    
+    assert coordinator.data["playing"] is False
+    assert "song" not in coordinator.data
+    assert "elapsed" not in coordinator.data
+
+
+async def test_handle_error_event_song_explain(hass: HomeAssistant) -> None:
+    """Test error event for song.explain stores empty explanation."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    coordinator._handle_error_event({"operation": "song.explain", "message": "No explanation"})
+    
+    assert coordinator._response_data["song_explanation"] == ""
+
+
+async def test_clear_playback_state(hass: HomeAssistant) -> None:
+    """Test clearing playback state."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data["playing"] = True
+    coordinator.data["paused"] = True
+    coordinator.data["station"] = "Test"
+    coordinator.data["stationId"] = "123"
+    coordinator.data["song"] = {"title": "Song"}
+    coordinator.data["elapsed"] = 45
+    
+    coordinator._clear_playback_state()
+    
+    assert coordinator.data["playing"] is False
+    assert coordinator.data["paused"] is False
+    assert coordinator.data["station"] is None
+    assert coordinator.data["stationId"] is None
+    assert "song" not in coordinator.data
+    assert "elapsed" not in coordinator.data
+
+
+async def test_send_action_with_params(hass: HomeAssistant) -> None:
+    """Test sending an action with parameters."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    
+    mock_ws = AsyncMock()
+    mock_ws.closed = False
+    mock_ws.send_str = AsyncMock()
+    coordinator._ws = mock_ws
+    
+    await coordinator.send_action_with_params("volume.set", {"volume": 50})
+    
+    mock_ws.send_str.assert_called_once()
+    call_args = mock_ws.send_str.call_args[0][0]
+    assert "action" in call_args or "volume.set" in call_args
+    assert "50" in call_args
+

@@ -19,7 +19,9 @@ A Home Assistant integration for controlling [remote-pianobar](https://github.co
 
 ## Prerequisites
 
-You need a running instance of [remote-pianobar](https://github.com/mr-light-show/remote-pianobar) with WebSocket support.
+You need **remote-pianobar** installed and running on a **separate machine** (e.g. a Raspberry Pi, Linux server, or Mac) with WebSocket support. This integration connects to that instance over the network—it does not run pianobar on the same host as Home Assistant.
+
+- Install and configure remote-pianobar: [mr-light-show/remote-pianobar](https://github.com/mr-light-show/remote-pianobar)
 
 ## Installation
 
