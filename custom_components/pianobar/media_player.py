@@ -145,6 +145,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
         attrs: dict[str, Any] = {
+            "pandora_connected": self.coordinator.data.get("pandora_connected", True),
             "supported_actions": [
                 "love_song",
                 "ban_song",
@@ -187,7 +188,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         await self._play_station(source)
 
     async def async_media_play(self) -> None:
-        """Send play command."""
+        """Send play command (backend treats as reconnect when Pandora is disconnected)."""
         await self.coordinator.send_action("playback.play")
 
     async def async_media_pause(self) -> None:
