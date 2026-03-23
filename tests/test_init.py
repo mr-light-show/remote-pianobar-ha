@@ -223,6 +223,36 @@ async def test_service_reconnect(
         assert mock_coordinator.async_connect.call_count == 2  # Once during setup, once for reconnect
 
 
+async def test_service_reconnect_async_connect_raises(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Reconnect service logs error when async_connect fails."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock(
+            side_effect=[None, RuntimeError("connection refused")]
+        )
+        mock_coordinator.is_connected = False
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RECONNECT,
+            {},
+            blocking=True,
+        )
+
+        assert mock_coordinator.async_connect.call_count == 2
+
+
 async def test_service_create_station(
     hass: HomeAssistant,
     mock_config_entry: ConfigEntry,
@@ -256,6 +286,34 @@ async def test_service_create_station(
         assert call_args[0] == "station.createFrom"
         assert call_args[1]["trackToken"] == "test_token"
         assert call_args[1]["type"] == "artist"
+
+
+async def test_service_create_station_without_track_token(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """create_station does nothing when no track token is available."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CREATE_STATION,
+            {"type": "song"},
+            blocking=True,
+        )
+
+        mock_coordinator.send_event.assert_not_called()
 
 
 async def test_service_rename_station(

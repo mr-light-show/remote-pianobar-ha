@@ -284,7 +284,8 @@ async def test_async_setup_entry_single_account_only_station_select(
 
     entities: list = []
 
-    async def async_add_entities(new_entities):
+    # AddEntitiesCallback is synchronous; platform calls it without await.
+    def async_add_entities(new_entities):
         entities.extend(new_entities)
 
     await async_setup_entry(hass, mock_config_entry, async_add_entities)
@@ -311,7 +312,7 @@ async def test_async_setup_entry_multi_account_adds_account_select(
 
     entities: list = []
 
-    async def async_add_entities(new_entities):
+    def async_add_entities(new_entities):
         entities.extend(new_entities)
 
     await async_setup_entry(hass, mock_config_entry, async_add_entities)
