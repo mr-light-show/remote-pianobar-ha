@@ -172,6 +172,9 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
             ],
             # Full station data: id, name, isQuickMix, isQuickMixed
             "stations": self.coordinator.data.get("stations", []),
+            # Multi-account data for Lovelace card
+            "accounts": self.coordinator.data.get("accounts", []),
+            "current_account": self.coordinator.data.get("current_account"),
         }
         # Add rating and song station name from current song if available
         song = self.coordinator.data.get("song")

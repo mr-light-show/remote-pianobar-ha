@@ -106,6 +106,51 @@ async def test_handle_process_event(
     assert coordinator.data["song"] == mock_song_data
 
 
+async def test_handle_process_event_accounts_and_current_account(
+    hass: HomeAssistant,
+) -> None:
+    """Process payload includes multi-account fields."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    payload = {
+        "playing": False,
+        "paused": False,
+        "volume": 50,
+        "station": "",
+        "stationId": "",
+        "accounts": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+        "current_account": {"id": "b", "label": "B"},
+    }
+    coordinator._handle_process_event(payload)
+    assert len(coordinator.data["accounts"]) == 2
+    assert coordinator.data["current_account"]["id"] == "b"
+
+
+async def test_handle_error_event_reconnect_last_station_deleted(
+    hass: HomeAssistant,
+) -> None:
+    """Reconnect error with last station removed updates list and current station."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data["stations"] = [
+        {"id": "gone", "name": "Gone"},
+        {"id": "keep", "name": "Keep"},
+    ]
+    coordinator.data["stationId"] = "gone"
+    coordinator.data["station"] = "Gone"
+
+    coordinator._handle_error_event(
+        {
+            "operation": "app.pandora-reconnect",
+            "message": "Last station was deleted",
+            "stationId": "gone",
+        }
+    )
+
+    assert len(coordinator.data["stations"]) == 1
+    assert coordinator.data["stations"][0]["id"] == "keep"
+    assert coordinator.data["stationId"] == ""
+    assert coordinator.data["station"] == ""
+
+
 async def test_handle_start_event(hass: HomeAssistant, mock_song_data) -> None:
     """Test handling start event."""
     coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)

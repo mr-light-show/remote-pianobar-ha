@@ -34,6 +34,7 @@ from .const import (
     SERVICE_SEARCH,
     SERVICE_SET_QUICK_MIX,
     SERVICE_SET_STATION_MODE,
+    SERVICE_SWITCH_ACCOUNT,
     SERVICE_TIRED_OF_SONG,
     SERVICE_TOGGLE_PLAYBACK,
 )
@@ -285,6 +286,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {"stationId": station_id}
         )
 
+    async def async_switch_account(call: ServiceCall) -> None:
+        """Handle switch_account service call."""
+        coordinator = _get_coordinator_from_call(hass, call)
+        account_id = call.data.get("account_id")
+        await coordinator.send_action_with_params(
+            "app.pandora-reconnect", {"account_id": account_id}
+        )
+        _LOGGER.info("Switching Pandora account to: %s", account_id)
+
     # Register all services (done once at domain level)
     hass.services.async_register(
         DOMAIN,
@@ -506,6 +516,16 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         schema=vol.Schema({
             vol.Optional("entity_id"): cv.entity_ids,
             vol.Required("station_id"): cv.string,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SWITCH_ACCOUNT,
+        async_switch_account,
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+            vol.Required("account_id"): cv.string,
         }),
     )
 

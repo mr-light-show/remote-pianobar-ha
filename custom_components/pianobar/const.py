@@ -37,6 +37,7 @@ SERVICE_SEARCH = "search"
 SERVICE_GET_GENRES = "get_genres"
 SERVICE_CREATE_STATION_FROM_MUSIC_ID = "create_station_from_music_id"
 SERVICE_ADD_SHARED_STATION = "add_shared_station"
+SERVICE_SWITCH_ACCOUNT = "switch_account"
 
 # Media browser
 MEDIA_TYPE_STATION = "station"

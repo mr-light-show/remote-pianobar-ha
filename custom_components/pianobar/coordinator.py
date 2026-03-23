@@ -254,6 +254,12 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self.data["elapsed"] = payload["elapsed"]
                 self.data["position_updated_at"] = dt_util.utcnow()
 
+        # Multi-account state
+        if "accounts" in payload:
+            self.data["accounts"] = payload["accounts"]
+        if "current_account" in payload:
+            self.data["current_account"] = payload["current_account"]
+
     def _handle_start_event(self, payload: dict[str, Any]) -> None:
         """Handle start event (new song started)."""
         self.data.update({
