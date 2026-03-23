@@ -1,15 +1,20 @@
 """Tests for Pianobar select platform."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 
 from custom_components.pianobar.const import DOMAIN
-from custom_components.pianobar.select import PianobarStationSelect
+from custom_components.pianobar.select import (
+    PianobarAccountSelect,
+    PianobarStationSelect,
+    async_setup_entry,
+)
 
 
 @pytest.fixture
@@ -167,4 +172,151 @@ class TestPianobarStationSelect:
             "manufacturer": "Pandora",
             "model": "Pianobar",
         }
+
+
+@pytest.fixture
+def mock_coordinator_multi_account(mock_station_data):
+    """Coordinator data with two accounts (multi-account UI)."""
+    coordinator = MagicMock()
+    coordinator.data = {
+        "playing": True,
+        "paused": False,
+        "volume": 0,
+        "station": "Test Station 1",
+        "stationId": "123456789",
+        "stations": mock_station_data,
+        "accounts": [
+            {"id": "work", "label": "Work"},
+            {"id": "home", "label": "Home"},
+        ],
+        "current_account": {"id": "work", "label": "Work"},
+    }
+    coordinator.send_event = AsyncMock()
+    coordinator.send_action_with_params = AsyncMock()
+    coordinator.async_add_listener = MagicMock(return_value=lambda: None)
+    return coordinator
+
+
+class TestPianobarAccountSelect:
+    """Tests for PianobarAccountSelect entity."""
+
+    def test_account_entity_attributes(
+        self, mock_coordinator_multi_account, mock_config_entry_for_select
+    ):
+        """Account select uses correct name, icon, unique_id."""
+        entity = PianobarAccountSelect(
+            mock_coordinator_multi_account, mock_config_entry_for_select
+        )
+        assert entity.name == "Account"
+        assert entity.icon == "mdi:account-switch"
+        assert entity.unique_id == "test_entry_id_account_select"
+
+    def test_account_options_and_current(
+        self, mock_coordinator_multi_account, mock_config_entry_for_select
+    ):
+        """Options list labels; current_option matches active account."""
+        entity = PianobarAccountSelect(
+            mock_coordinator_multi_account, mock_config_entry_for_select
+        )
+        assert entity.options == ["Work", "Home"]
+        assert entity.current_option == "Work"
+
+    def test_current_option_falls_back_to_id_when_no_label(
+        self, mock_coordinator_multi_account, mock_config_entry_for_select
+    ):
+        """current_account without label uses id if that id is in options."""
+        mock_coordinator_multi_account.data["accounts"] = [
+            {"id": "solo", "label": "solo"},
+        ]
+        mock_coordinator_multi_account.data["current_account"] = {"id": "solo"}
+        entity = PianobarAccountSelect(
+            mock_coordinator_multi_account, mock_config_entry_for_select
+        )
+        assert entity.current_option == "solo"
+
+    def test_current_option_none_when_not_in_options(
+        self, mock_coordinator_multi_account, mock_config_entry_for_select
+    ):
+        """Unknown active account label yields None."""
+        mock_coordinator_multi_account.data["current_account"] = {
+            "id": "x",
+            "label": "Ghost",
+        }
+        entity = PianobarAccountSelect(
+            mock_coordinator_multi_account, mock_config_entry_for_select
+        )
+        assert entity.current_option is None
+
+    @pytest.mark.asyncio
+    async def test_account_async_select_option(
+        self, mock_coordinator_multi_account, mock_config_entry_for_select
+    ):
+        """Selecting an account sends app.pandora-reconnect with account_id."""
+        entity = PianobarAccountSelect(
+            mock_coordinator_multi_account, mock_config_entry_for_select
+        )
+        await entity.async_select_option("Home")
+        mock_coordinator_multi_account.send_action_with_params.assert_called_once_with(
+            "app.pandora-reconnect", {"account_id": "home"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_account_async_select_unknown_option(
+        self, mock_coordinator_multi_account, mock_config_entry_for_select
+    ):
+        """Unknown account label does not call send_action_with_params."""
+        entity = PianobarAccountSelect(
+            mock_coordinator_multi_account, mock_config_entry_for_select
+        )
+        await entity.async_select_option("Nope")
+        mock_coordinator_multi_account.send_action_with_params.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_single_account_only_station_select(
+    hass: HomeAssistant, mock_config_entry: ConfigEntry
+):
+    """One account configured: only station select entity."""
+    coordinator = MagicMock()
+    coordinator.data = {"stations": [], "accounts": [{"id": "a", "label": "Only"}]}
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][mock_config_entry.entry_id] = coordinator
+
+    entities: list = []
+
+    async def async_add_entities(new_entities):
+        entities.extend(new_entities)
+
+    await async_setup_entry(hass, mock_config_entry, async_add_entities)
+
+    assert len(entities) == 1
+    assert isinstance(entities[0], PianobarStationSelect)
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_multi_account_adds_account_select(
+    hass: HomeAssistant, mock_config_entry: ConfigEntry
+):
+    """Two+ accounts: station select and account select."""
+    coordinator = MagicMock()
+    coordinator.data = {
+        "stations": [],
+        "accounts": [
+            {"id": "a", "label": "A"},
+            {"id": "b", "label": "B"},
+        ],
+    }
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][mock_config_entry.entry_id] = coordinator
+
+    entities: list = []
+
+    async def async_add_entities(new_entities):
+        entities.extend(new_entities)
+
+    await async_setup_entry(hass, mock_config_entry, async_add_entities)
+
+    assert len(entities) == 2
+    assert isinstance(entities[0], PianobarStationSelect)
+    assert isinstance(entities[1], PianobarAccountSelect)
 

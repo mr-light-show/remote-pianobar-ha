@@ -1,13 +1,16 @@
 """Test the Pianobar integration init."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import custom_components.pianobar as pianobar_integration
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.pianobar.const import (
     DOMAIN,
@@ -31,6 +34,7 @@ from custom_components.pianobar.const import (
     SERVICE_SEARCH,
     SERVICE_SET_QUICK_MIX,
     SERVICE_SET_STATION_MODE,
+    SERVICE_SWITCH_ACCOUNT,
     SERVICE_TIRED_OF_SONG,
     SERVICE_TOGGLE_PLAYBACK,
 )
@@ -796,4 +800,132 @@ async def test_service_add_shared_station(
         call_args = mock_coordinator.send_event.call_args[0]
         assert call_args[0] == "station.addShared"
         assert call_args[1]["stationId"] == "1234567890"
+
+
+def test_get_coordinator_from_call_uses_first_entry_when_no_entity_id(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Without entity_id, resolve coordinator from first config entry."""
+    coord_a = MagicMock()
+    coord_b = MagicMock()
+    hass.data[DOMAIN] = {
+        "first_id": coord_a,
+        "second_id": coord_b,
+    }
+    call = ServiceCall(DOMAIN, SERVICE_LOVE_SONG, {})
+    assert pianobar_integration._get_coordinator_from_call(hass, call) is coord_a
+
+
+def test_get_coordinator_from_call_raises_when_no_instances(hass: HomeAssistant) -> None:
+    """ServiceValidationError when domain has no coordinators."""
+    hass.data[DOMAIN] = {}
+    call = ServiceCall(DOMAIN, SERVICE_LOVE_SONG, {})
+    with pytest.raises(ServiceValidationError):
+        pianobar_integration._get_coordinator_from_call(hass, call)
+
+
+async def test_get_coordinator_from_call_resolves_entity_id(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """entity_id in service data maps to the correct coordinator."""
+    mock_config_entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][mock_config_entry.entry_id] = coordinator
+
+    registry = er.async_get(hass)
+    reg_entry = registry.async_get_or_create(
+        "media_player",
+        DOMAIN,
+        mock_config_entry.entry_id,
+        suggested_object_id="pianobar_test_player",
+        config_entry=mock_config_entry,
+    )
+    await hass.async_block_till_done()
+
+    call = ServiceCall(
+        DOMAIN,
+        SERVICE_LOVE_SONG,
+        {"entity_id": reg_entry.entity_id},
+    )
+    assert pianobar_integration._get_coordinator_from_call(hass, call) is coordinator
+
+    call_list = ServiceCall(
+        DOMAIN,
+        SERVICE_LOVE_SONG,
+        {"entity_id": [reg_entry.entity_id]},
+    )
+    assert pianobar_integration._get_coordinator_from_call(hass, call_list) is coordinator
+
+
+async def test_service_reconnect_when_already_connected(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Reconnect service does not call async_connect when already connected."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.is_connected = True
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RECONNECT,
+            {},
+            blocking=True,
+        )
+
+        assert mock_coordinator.async_connect.call_count == 1
+
+
+async def test_service_switch_account(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """switch_account service sends app.pandora-reconnect with account_id."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_action_with_params = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SWITCH_ACCOUNT,
+            {"account_id": "work"},
+            blocking=True,
+        )
+
+        mock_coordinator.send_action_with_params.assert_called_once_with(
+            "app.pandora-reconnect", {"account_id": "work"}
+        )
+
+
+async def test_async_reload_entry(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Options update listener triggers config entry reload."""
+    with patch.object(
+        hass.config_entries, "async_reload", new=AsyncMock()
+    ) as mock_reload:
+        await pianobar_integration.async_reload_entry(hass, mock_config_entry)
+        mock_reload.assert_awaited_once_with(mock_config_entry.entry_id)
 
