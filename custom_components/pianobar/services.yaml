@@ -320,3 +320,18 @@ add_shared_station:
     entity:
       domain: media_player
       integration: pianobar
+
+switch_account:
+  name: Switch Pandora account
+  description: Switch to a different Pandora account (disconnects current session and reconnects with the specified account's credentials)
+  fields:
+    account_id:
+      name: Account ID
+      description: Account identifier as configured in pianobar config (e.g. "work", "default")
+      required: true
+      selector:
+        text:
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar

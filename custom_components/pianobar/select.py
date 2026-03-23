@@ -20,9 +20,16 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Pianobar select entity."""
+    """Set up the Pianobar select entities."""
     coordinator: PianobarCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([PianobarStationSelect(coordinator, entry)])
+    entities = [PianobarStationSelect(coordinator, entry)]
+
+    # Only add account select when multiple accounts are configured
+    accounts = coordinator.data.get("accounts", [])
+    if len(accounts) > 1:
+        entities.append(PianobarAccountSelect(coordinator, entry))
+
+    async_add_entities(entities)
 
 
 class PianobarStationSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity):
@@ -68,5 +75,55 @@ class PianobarStationSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity
             if station["name"] == option:
                 await self.coordinator.send_event("station.change", station["id"])
                 _LOGGER.debug("Changed station to: %s (ID: %s)", option, station["id"])
+                break
+
+
+class PianobarAccountSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity):
+    """Select entity for Pianobar account switching."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Account"
+    _attr_icon = "mdi:account-switch"
+
+    def __init__(
+        self,
+        coordinator: PianobarCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the account select entity."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_account_select"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Pianobar",
+            "manufacturer": "Pandora",
+            "model": "Pianobar",
+        }
+
+    @property
+    def options(self) -> list[str]:
+        """Return list of account labels."""
+        accounts = self.coordinator.data.get("accounts", [])
+        return [acct["label"] for acct in accounts]
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the currently active account label."""
+        current = self.coordinator.data.get("current_account")
+        if current:
+            label = current.get("label", current.get("id", ""))
+            if label in self.options:
+                return label
+        return None
+
+    async def async_select_option(self, option: str) -> None:
+        """Switch to the selected account."""
+        accounts = self.coordinator.data.get("accounts", [])
+        for acct in accounts:
+            if acct["label"] == option:
+                await self.coordinator.send_action_with_params(
+                    "app.pandora-reconnect", {"account_id": acct["id"]}
+                )
+                _LOGGER.debug("Switching to account: %s (ID: %s)", option, acct["id"])
                 break
 
