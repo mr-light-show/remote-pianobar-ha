@@ -23,16 +23,18 @@ async def async_browse_media_internal(
     media_content_id: str | None,
 ) -> BrowseMedia:
     """Browse media."""
+    # Use category "common" — hassfest allows slug keys under "common" only; a custom
+    # "browse_media" block in translations/en.json is rejected (see hassfest gen_strings_schema).
     translations = await translation.async_get_translations(
-        hass, hass.config.language, "browse_media", integrations=[DOMAIN]
+        hass, hass.config.language, "common", integrations=[DOMAIN]
     )
-    prefix = f"component.{DOMAIN}.browse_media."
+    prefix = f"component.{DOMAIN}.common."
 
     def _title(key: str, default: str) -> str:
         return translations.get(f"{prefix}{key}", default)
 
-    my_stations = _title("my_stations", "My Stations")
-    unknown_station = _title("unknown_station", "Unknown Station")
+    my_stations = _title("browse_media_my_stations", "My Stations")
+    unknown_station = _title("browse_media_unknown_station", "Unknown Station")
 
     # Root level - return all stations
     if media_content_id is None or media_content_id in ("", "root", "stations"):

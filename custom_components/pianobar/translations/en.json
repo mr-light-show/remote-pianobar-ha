@@ -50,9 +50,9 @@
       "name": "Pianobar"
     }
   },
-  "browse_media": {
-    "my_stations": "My Stations",
-    "unknown_station": "Unknown Station"
+  "common": {
+    "browse_media_my_stations": "My Stations",
+    "browse_media_unknown_station": "Unknown Station"
   },
   "exceptions": {
     "no_instance": {

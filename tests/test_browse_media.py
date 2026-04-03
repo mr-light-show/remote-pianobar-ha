@@ -13,10 +13,10 @@ from custom_components.pianobar.const import DOMAIN, MEDIA_TYPE_STATION
 
 
 def _browse_translation_patch():
-    prefix = f"component.{DOMAIN}.browse_media."
+    prefix = f"component.{DOMAIN}.common."
     return {
-        f"{prefix}my_stations": "My Stations",
-        f"{prefix}unknown_station": "Unknown Station",
+        f"{prefix}browse_media_my_stations": "My Stations",
+        f"{prefix}browse_media_unknown_station": "Unknown Station",
     }
 
 

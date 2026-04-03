@@ -30,6 +30,7 @@ When the same user-facing **concept** appears in more than one repo, use the **s
 
 - Use `translation_key` on entities/devices; `translation_domain` + `translation_key` on service errors; translated browse/media titles where applicable.
 - Keep `services.yaml` lean; long prose belongs in the `services` section of translations.
+- **Hassfest (`translations/en.json`):** Home Assistant’s schema only allows specific top-level keys (`config`, `entity`, `services`, `common`, etc.). Arbitrary sections (for example a custom `browse_media` object with free-form keys) **fail CI**. Put ad hoc strings under **`common`** using **slug** keys (e.g. `browse_media_my_stations`), and load them with `async_get_translations(hass, lang, "common", integrations=[DOMAIN])` using prefix `component.<domain>.common.<key>`.
 
 ## `remote_pianobar_card` (Lovelace card)
 
