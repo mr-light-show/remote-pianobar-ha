@@ -879,8 +879,10 @@ def test_get_coordinator_from_call_raises_when_no_instances(hass: HomeAssistant)
     """ServiceValidationError when domain has no coordinators."""
     hass.data[DOMAIN] = {}
     call = ServiceCall(DOMAIN, SERVICE_LOVE_SONG, {})
-    with pytest.raises(ServiceValidationError):
+    with pytest.raises(ServiceValidationError) as excinfo:
         pianobar_integration._get_coordinator_from_call(hass, call)
+    assert excinfo.value.translation_key == "no_instance"
+    assert excinfo.value.translation_domain == DOMAIN
 
 
 async def test_get_coordinator_from_call_resolves_entity_id(
