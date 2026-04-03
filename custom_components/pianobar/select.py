@@ -36,7 +36,7 @@ class PianobarStationSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity
     """Select entity for Pianobar station selection."""
 
     _attr_has_entity_name = True
-    _attr_name = "Station"
+    _attr_translation_key = "station"
     _attr_icon = "mdi:radio"
 
     def __init__(
@@ -49,7 +49,7 @@ class PianobarStationSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity
         self._attr_unique_id = f"{entry.entry_id}_station_select"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Pianobar",
+            "translation_key": "pianobar_device",
             "manufacturer": "Pandora",
             "model": "Pianobar",
         }
@@ -82,7 +82,7 @@ class PianobarAccountSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity
     """Select entity for Pianobar account switching."""
 
     _attr_has_entity_name = True
-    _attr_name = "Account"
+    _attr_translation_key = "account"
     _attr_icon = "mdi:account-switch"
 
     def __init__(
@@ -95,7 +95,7 @@ class PianobarAccountSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity
         self._attr_unique_id = f"{entry.entry_id}_account_select"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Pianobar",
+            "translation_key": "pianobar_device",
             "manufacturer": "Pandora",
             "model": "Pianobar",
         }

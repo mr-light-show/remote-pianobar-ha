@@ -1,4 +1,5 @@
 {
+  "title": "Pianobar",
   "config": {
     "step": {
       "user": {
@@ -33,6 +34,231 @@
       "cannot_connect": "Failed to connect to Pianobar. Please check the host and port.",
       "unknown": "Unexpected error occurred."
     }
+  },
+  "entity": {
+    "select": {
+      "station": {
+        "name": "Station"
+      },
+      "account": {
+        "name": "Account"
+      }
+    }
+  },
+  "device": {
+    "pianobar_device": {
+      "name": "Pianobar"
+    }
+  },
+  "browse_media": {
+    "my_stations": "My Stations",
+    "unknown_station": "Unknown Station"
+  },
+  "exceptions": {
+    "no_instance": {
+      "message": "No pianobar instance found"
+    }
+  },
+  "services": {
+    "love_song": {
+      "name": "Love song",
+      "description": "Give the current song a thumbs up"
+    },
+    "ban_song": {
+      "name": "Ban song",
+      "description": "Give the current song a thumbs down (removes from station)"
+    },
+    "tired_of_song": {
+      "name": "Tired of song",
+      "description": "Mark current song as tired (temporarily skip)"
+    },
+    "create_station": {
+      "name": "Create station",
+      "description": "Create a new station from the current song or artist",
+      "fields": {
+        "type": {
+          "name": "Type",
+          "description": "Create station from \"song\" or \"artist\""
+        }
+      }
+    },
+    "rename_station": {
+      "name": "Rename station",
+      "description": "Rename an existing station",
+      "fields": {
+        "station_id": {
+          "name": "Station ID",
+          "description": "ID of the station to rename"
+        },
+        "name": {
+          "name": "New name",
+          "description": "New name for the station"
+        }
+      }
+    },
+    "delete_station": {
+      "name": "Delete station",
+      "description": "Delete a station",
+      "fields": {
+        "station_id": {
+          "name": "Station ID",
+          "description": "ID of the station to delete"
+        }
+      }
+    },
+    "reconnect": {
+      "name": "Reconnect",
+      "description": "Force reconnect to remote-pianobar WebSocket"
+    },
+    "explain_song": {
+      "name": "Explain song",
+      "description": "Get Pandora's explanation for why the current song was chosen"
+    },
+    "get_upcoming": {
+      "name": "Get upcoming songs",
+      "description": "Get list of upcoming songs in the queue"
+    },
+    "set_quick_mix": {
+      "name": "Set QuickMix",
+      "description": "Configure which stations are included in QuickMix",
+      "fields": {
+        "station_ids": {
+          "name": "Station IDs",
+          "description": "Array of station IDs to include in QuickMix"
+        }
+      }
+    },
+    "add_seed": {
+      "name": "Add seed to station",
+      "description": "Add an artist or song as a seed to an existing station",
+      "fields": {
+        "music_id": {
+          "name": "Music ID",
+          "description": "Music ID from search results"
+        },
+        "station_id": {
+          "name": "Station ID",
+          "description": "Target station ID"
+        }
+      }
+    },
+    "get_station_info": {
+      "name": "Get station info",
+      "description": "Get station seeds and feedback history",
+      "fields": {
+        "station_id": {
+          "name": "Station ID",
+          "description": "Station ID to get info for"
+        }
+      }
+    },
+    "delete_seed": {
+      "name": "Delete seed from station",
+      "description": "Remove a seed from a station",
+      "fields": {
+        "seed_id": {
+          "name": "Seed ID",
+          "description": "Seed ID from station info"
+        },
+        "seed_type": {
+          "name": "Seed type",
+          "description": "Type of seed to delete"
+        },
+        "station_id": {
+          "name": "Station ID",
+          "description": "Station ID"
+        }
+      }
+    },
+    "delete_feedback": {
+      "name": "Delete feedback",
+      "description": "Remove a thumbs up/down from station history",
+      "fields": {
+        "feedback_id": {
+          "name": "Feedback ID",
+          "description": "Feedback ID from station info"
+        },
+        "station_id": {
+          "name": "Station ID",
+          "description": "Station ID"
+        }
+      }
+    },
+    "get_station_modes": {
+      "name": "Get station modes",
+      "description": "Get available playback modes for a station",
+      "fields": {
+        "station_id": {
+          "name": "Station ID",
+          "description": "Station ID"
+        }
+      }
+    },
+    "set_station_mode": {
+      "name": "Set station mode",
+      "description": "Set the playback mode for a station",
+      "fields": {
+        "station_id": {
+          "name": "Station ID",
+          "description": "Station ID"
+        },
+        "mode_id": {
+          "name": "Mode ID",
+          "description": "Mode ID (0=My Station, 1=Crowd Faves, 2=Deep Cuts, 3=Discovery)"
+        }
+      }
+    },
+    "toggle_playback": {
+      "name": "Toggle playback",
+      "description": "Toggle between play and pause"
+    },
+    "reset_volume": {
+      "name": "Reset volume",
+      "description": "Reset volume to 50% default"
+    },
+    "search": {
+      "name": "Search for music",
+      "description": "Search for artists and songs",
+      "fields": {
+        "query": {
+          "name": "Search query",
+          "description": "Search term for artists or songs"
+        }
+      }
+    },
+    "get_genres": {
+      "name": "Get genre categories",
+      "description": "Get list of genre categories for creating stations"
+    },
+    "create_station_from_music_id": {
+      "name": "Create station from music ID",
+      "description": "Create a new station from a search result or genre music ID",
+      "fields": {
+        "music_id": {
+          "name": "Music ID",
+          "description": "Music ID from search results or genre list"
+        }
+      }
+    },
+    "add_shared_station": {
+      "name": "Add shared station",
+      "description": "Add a shared station by its numeric ID",
+      "fields": {
+        "station_id": {
+          "name": "Station ID",
+          "description": "Numeric station ID from Pandora share link (digits only)"
+        }
+      }
+    },
+    "switch_account": {
+      "name": "Switch Pandora account",
+      "description": "Switch to a different Pandora account (disconnects current session and reconnects with the specified account's credentials)",
+      "fields": {
+        "account_id": {
+          "name": "Account ID",
+          "description": "Account identifier as configured in pianobar config (e.g. \"work\", \"default\")"
+        }
+      }
+    }
   }
 }
-

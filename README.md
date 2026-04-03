@@ -53,6 +53,8 @@ flowchart LR
 1. Copy the `custom_components/pianobar` directory to your Home Assistant's `custom_components` directory
 2. Restart Home Assistant
 
+Translations for the integration live under `custom_components/pianobar/translations/` (for example `en.json`). Home Assistant loads language files from that folder; there is no separate root `strings.json` required.
+
 ## Configuration
 
 1. Go to **Settings** → **Devices & Services**

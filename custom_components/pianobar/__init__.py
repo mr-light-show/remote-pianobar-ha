@@ -75,7 +75,11 @@ def _get_coordinator_from_call(
         if entry_ids:
             return hass.data[DOMAIN][entry_ids[0]]
     
-    raise ServiceValidationError("No pianobar instance found")
+    raise ServiceValidationError(
+        "No pianobar instance found",
+        translation_domain=DOMAIN,
+        translation_key="no_instance",
+    )
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

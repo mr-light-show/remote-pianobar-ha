@@ -62,7 +62,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         self._attr_unique_id = entry.entry_id
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Pianobar",
+            "translation_key": "pianobar_device",
             "manufacturer": "Pianobar",
             "model": "Remote Pianobar",
         }

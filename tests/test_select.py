@@ -17,6 +17,19 @@ from custom_components.pianobar.select import (
 )
 
 
+def _attach_select_platform(entity: PianobarStationSelect | PianobarAccountSelect) -> None:
+    """Provide platform_translations so translated entity names resolve in tests."""
+    pl = MagicMock()
+    pl.platform_name = "select"
+    pl.domain = DOMAIN
+    key = entity.translation_key or "station"
+    label = "Station" if key == "station" else "Account"
+    pl.platform_translations = {
+        f"component.select.entity.{DOMAIN}.{key}.name": label,
+    }
+    entity.platform = pl
+
+
 @pytest.fixture
 def mock_coordinator_for_select(mock_station_data):
     """Create a mock coordinator for select tests."""
@@ -53,6 +66,7 @@ class TestPianobarStationSelect:
         entity = PianobarStationSelect(
             mock_coordinator_for_select, mock_config_entry_for_select
         )
+        _attach_select_platform(entity)
 
         assert entity.name == "Station"
         assert entity.icon == "mdi:radio"
@@ -168,7 +182,7 @@ class TestPianobarStationSelect:
 
         assert entity.device_info == {
             "identifiers": {(DOMAIN, "test_entry_id")},
-            "name": "Pianobar",
+            "translation_key": "pianobar_device",
             "manufacturer": "Pandora",
             "model": "Pianobar",
         }
@@ -207,6 +221,7 @@ class TestPianobarAccountSelect:
         entity = PianobarAccountSelect(
             mock_coordinator_multi_account, mock_config_entry_for_select
         )
+        _attach_select_platform(entity)
         assert entity.name == "Account"
         assert entity.icon == "mdi:account-switch"
         assert entity.unique_id == "test_entry_id_account_select"

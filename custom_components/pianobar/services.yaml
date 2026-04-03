@@ -1,6 +1,4 @@
 love_song:
-  name: Love song
-  description: Give the current song a thumbs up
   fields: {}
   target:
     entity:
@@ -8,8 +6,6 @@ love_song:
       integration: pianobar
 
 ban_song:
-  name: Ban song
-  description: Give the current song a thumbs down (removes from station)
   fields: {}
   target:
     entity:
@@ -17,8 +13,6 @@ ban_song:
       integration: pianobar
 
 tired_of_song:
-  name: Tired of song
-  description: Mark current song as tired (temporarily skip)
   fields: {}
   target:
     entity:
@@ -26,12 +20,8 @@ tired_of_song:
       integration: pianobar
 
 create_station:
-  name: Create station
-  description: Create a new station from the current song or artist
   fields:
     type:
-      name: Type
-      description: Create station from "song" or "artist"
       required: false
       default: "song"
       selector:
@@ -45,18 +35,12 @@ create_station:
       integration: pianobar
 
 rename_station:
-  name: Rename station
-  description: Rename an existing station
   fields:
     station_id:
-      name: Station ID
-      description: ID of the station to rename
       required: true
       selector:
         text:
     name:
-      name: New name
-      description: New name for the station
       required: true
       selector:
         text:
@@ -66,12 +50,8 @@ rename_station:
       integration: pianobar
 
 delete_station:
-  name: Delete station
-  description: Delete a station
   fields:
     station_id:
-      name: Station ID
-      description: ID of the station to delete
       required: true
       selector:
         text:
@@ -81,8 +61,6 @@ delete_station:
       integration: pianobar
 
 reconnect:
-  name: Reconnect
-  description: Force reconnect to remote-pianobar WebSocket
   fields: {}
   target:
     entity:
@@ -90,8 +68,6 @@ reconnect:
       integration: pianobar
 
 explain_song:
-  name: Explain song
-  description: Get Pandora's explanation for why the current song was chosen
   fields: {}
   target:
     entity:
@@ -99,8 +75,6 @@ explain_song:
       integration: pianobar
 
 get_upcoming:
-  name: Get upcoming songs
-  description: Get list of upcoming songs in the queue
   fields: {}
   target:
     entity:
@@ -108,12 +82,8 @@ get_upcoming:
       integration: pianobar
 
 set_quick_mix:
-  name: Set QuickMix
-  description: Configure which stations are included in QuickMix
   fields:
     station_ids:
-      name: Station IDs
-      description: Array of station IDs to include in QuickMix
       required: true
       selector:
         object:
@@ -123,18 +93,12 @@ set_quick_mix:
       integration: pianobar
 
 add_seed:
-  name: Add seed to station
-  description: Add an artist or song as a seed to an existing station
   fields:
     music_id:
-      name: Music ID
-      description: Music ID from search results
       required: true
       selector:
         text:
     station_id:
-      name: Station ID
-      description: Target station ID
       required: true
       selector:
         text:
@@ -144,12 +108,8 @@ add_seed:
       integration: pianobar
 
 get_station_info:
-  name: Get station info
-  description: Get station seeds and feedback history
   fields:
     station_id:
-      name: Station ID
-      description: Station ID to get info for
       required: true
       selector:
         text:
@@ -159,18 +119,12 @@ get_station_info:
       integration: pianobar
 
 delete_seed:
-  name: Delete seed from station
-  description: Remove a seed from a station
   fields:
     seed_id:
-      name: Seed ID
-      description: Seed ID from station info
       required: true
       selector:
         text:
     seed_type:
-      name: Seed type
-      description: Type of seed to delete
       required: true
       selector:
         select:
@@ -179,8 +133,6 @@ delete_seed:
             - "song"
             - "station"
     station_id:
-      name: Station ID
-      description: Station ID
       required: true
       selector:
         text:
@@ -190,18 +142,12 @@ delete_seed:
       integration: pianobar
 
 delete_feedback:
-  name: Delete feedback
-  description: Remove a thumbs up/down from station history
   fields:
     feedback_id:
-      name: Feedback ID
-      description: Feedback ID from station info
       required: true
       selector:
         text:
     station_id:
-      name: Station ID
-      description: Station ID
       required: true
       selector:
         text:
@@ -211,12 +157,8 @@ delete_feedback:
       integration: pianobar
 
 get_station_modes:
-  name: Get station modes
-  description: Get available playback modes for a station
   fields:
     station_id:
-      name: Station ID
-      description: Station ID
       required: true
       selector:
         text:
@@ -226,18 +168,12 @@ get_station_modes:
       integration: pianobar
 
 set_station_mode:
-  name: Set station mode
-  description: Set the playback mode for a station
   fields:
     station_id:
-      name: Station ID
-      description: Station ID
       required: true
       selector:
         text:
     mode_id:
-      name: Mode ID
-      description: Mode ID (0=My Station, 1=Crowd Faves, 2=Deep Cuts, 3=Discovery)
       required: true
       selector:
         number:
@@ -250,8 +186,6 @@ set_station_mode:
       integration: pianobar
 
 toggle_playback:
-  name: Toggle playback
-  description: Toggle between play and pause
   fields: {}
   target:
     entity:
@@ -259,8 +193,6 @@ toggle_playback:
       integration: pianobar
 
 reset_volume:
-  name: Reset volume
-  description: Reset volume to 50% default
   fields: {}
   target:
     entity:
@@ -268,12 +200,8 @@ reset_volume:
       integration: pianobar
 
 search:
-  name: Search for music
-  description: Search for artists and songs
   fields:
     query:
-      name: Search query
-      description: Search term for artists or songs
       required: true
       selector:
         text:
@@ -283,8 +211,6 @@ search:
       integration: pianobar
 
 get_genres:
-  name: Get genre categories
-  description: Get list of genre categories for creating stations
   fields: {}
   target:
     entity:
@@ -292,12 +218,8 @@ get_genres:
       integration: pianobar
 
 create_station_from_music_id:
-  name: Create station from music ID
-  description: Create a new station from a search result or genre music ID
   fields:
     music_id:
-      name: Music ID
-      description: Music ID from search results or genre list
       required: true
       selector:
         text:
@@ -307,12 +229,8 @@ create_station_from_music_id:
       integration: pianobar
 
 add_shared_station:
-  name: Add shared station
-  description: Add a shared station by its numeric ID
   fields:
     station_id:
-      name: Station ID
-      description: Numeric station ID from Pandora share link (digits only)
       required: true
       selector:
         text:
@@ -322,12 +240,8 @@ add_shared_station:
       integration: pianobar
 
 switch_account:
-  name: Switch Pandora account
-  description: Switch to a different Pandora account (disconnects current session and reconnects with the specified account's credentials)
   fields:
     account_id:
-      name: Account ID
-      description: Account identifier as configured in pianobar config (e.g. "work", "default")
       required: true
       selector:
         text:

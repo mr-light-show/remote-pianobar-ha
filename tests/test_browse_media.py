@@ -1,7 +1,7 @@
 """Test the Pianobar browse media."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -9,17 +9,30 @@ from homeassistant.components.media_player import MediaClass
 from homeassistant.core import HomeAssistant
 
 from custom_components.pianobar.browse_media import async_browse_media_internal
-from custom_components.pianobar.const import MEDIA_TYPE_STATION
+from custom_components.pianobar.const import DOMAIN, MEDIA_TYPE_STATION
+
+
+def _browse_translation_patch():
+    prefix = f"component.{DOMAIN}.browse_media."
+    return {
+        f"{prefix}my_stations": "My Stations",
+        f"{prefix}unknown_station": "Unknown Station",
+    }
 
 
 async def test_browse_media_root(hass: HomeAssistant, mock_coordinator) -> None:
     """Test browsing root level - shows stations directly."""
-    result = await async_browse_media_internal(
-        hass,
-        mock_coordinator,
-        None,
-        None,
-    )
+    with patch(
+        "custom_components.pianobar.browse_media.translation.async_get_translations",
+        new_callable=AsyncMock,
+        return_value=_browse_translation_patch(),
+    ):
+        result = await async_browse_media_internal(
+            hass,
+            mock_coordinator,
+            None,
+            None,
+        )
     
     assert result.title == "My Stations"
     assert result.media_class == MediaClass.DIRECTORY
@@ -34,14 +47,19 @@ async def test_browse_media_stations(
 ) -> None:
     """Test browsing stations at root level."""
     mock_coordinator.data = {"stations": mock_station_data}
-    
-    result = await async_browse_media_internal(
-        hass,
-        mock_coordinator,
-        None,
-        None,
-    )
-    
+
+    with patch(
+        "custom_components.pianobar.browse_media.translation.async_get_translations",
+        new_callable=AsyncMock,
+        return_value=_browse_translation_patch(),
+    ):
+        result = await async_browse_media_internal(
+            hass,
+            mock_coordinator,
+            None,
+            None,
+        )
+
     assert result.title == "My Stations"
     assert result.media_class == MediaClass.DIRECTORY
     assert result.can_play is False
@@ -63,14 +81,19 @@ async def test_browse_media_empty_stations(
 ) -> None:
     """Test browsing with no stations."""
     mock_coordinator.data = {"stations": []}
-    
-    result = await async_browse_media_internal(
-        hass,
-        mock_coordinator,
-        None,
-        None,
-    )
-    
+
+    with patch(
+        "custom_components.pianobar.browse_media.translation.async_get_translations",
+        new_callable=AsyncMock,
+        return_value=_browse_translation_patch(),
+    ):
+        result = await async_browse_media_internal(
+            hass,
+            mock_coordinator,
+            None,
+            None,
+        )
+
     assert result.title == "My Stations"
     assert len(result.children) == 0
 
@@ -82,13 +105,18 @@ async def test_browse_media_specific_station(
 ) -> None:
     """Test browsing a specific station returns empty children."""
     mock_coordinator.data = {"stations": mock_station_data}
-    
-    result = await async_browse_media_internal(
-        hass,
-        mock_coordinator,
-        MEDIA_TYPE_STATION,
-        "123456789",
-    )
+
+    with patch(
+        "custom_components.pianobar.browse_media.translation.async_get_translations",
+        new_callable=AsyncMock,
+        return_value=_browse_translation_patch(),
+    ):
+        result = await async_browse_media_internal(
+            hass,
+            mock_coordinator,
+            MEDIA_TYPE_STATION,
+            "123456789",
+        )
     
     # Station should be returned with empty children (no sub-content)
     assert result.title == "Test Station 1"
@@ -103,12 +131,17 @@ async def test_browse_media_invalid_type(
     mock_coordinator,
 ) -> None:
     """Test browsing with invalid media type falls back to root."""
-    result = await async_browse_media_internal(
-        hass,
-        mock_coordinator,
-        "invalid_type",
-        "invalid_id",
-    )
+    with patch(
+        "custom_components.pianobar.browse_media.translation.async_get_translations",
+        new_callable=AsyncMock,
+        return_value=_browse_translation_patch(),
+    ):
+        result = await async_browse_media_internal(
+            hass,
+            mock_coordinator,
+            "invalid_type",
+            "invalid_id",
+        )
     
     # Should fall back to root (stations list)
     assert result.title == "My Stations"
