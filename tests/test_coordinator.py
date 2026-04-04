@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -16,31 +17,36 @@ from custom_components.pianobar.coordinator import PianobarCoordinator
 async def test_coordinator_connect_success(hass: HomeAssistant) -> None:
     """Test successful WebSocket connection."""
     coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
-    
-    # Create a mock WebSocket that blocks on iteration to prevent immediate listener exit
-    async def infinite_iter():
-        # Keep the listener task blocked
-        await asyncio.sleep(100)  # This will be cancelled by disconnect
-        
+
     mock_ws = AsyncMock()
     mock_ws.closed = False
     mock_ws.send_str = AsyncMock()
     mock_ws.close = AsyncMock()
-    # Use a mock that just blocks instead of immediately ending
     mock_ws.__aiter__ = MagicMock(return_value=AsyncIteratorMock())
-    
+
+    process_json = (
+        '2["process",'
+        '{"playing":false,"paused":false,"volume":0,"station":"","stationId":""}]'
+    )
+
+    async def fake_listen() -> None:
+        await asyncio.sleep(0)
+        await coordinator._handle_message(process_json)
+        await asyncio.sleep(100)
+
     mock_session = AsyncMock()
     mock_session.ws_connect = AsyncMock(return_value=mock_ws)
     mock_session.closed = False
     mock_session.close = AsyncMock()
-    
+
     with patch("aiohttp.ClientSession", return_value=mock_session):
-        await coordinator.async_connect()
-        
+        with patch.object(coordinator, "_listen", new=fake_listen):
+            await coordinator.async_connect()
+
         assert coordinator._ws == mock_ws
-        mock_ws.send_str.assert_called_once()  # query event
-        
-        # Clean up - set closing flag first, then disconnect
+        mock_ws.send_str.assert_called_once()
+        assert coordinator._initial_process_event.is_set()
+
         await coordinator.async_disconnect()
 
 
@@ -120,9 +126,11 @@ async def test_handle_process_event_accounts_and_current_account(
         "accounts": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
         "current_account": {"id": "b", "label": "B"},
     }
+    coordinator._initial_process_event.clear()
     coordinator._handle_process_event(payload)
     assert len(coordinator.data["accounts"]) == 2
     assert coordinator.data["current_account"]["id"] == "b"
+    assert coordinator._initial_process_event.is_set()
 
 
 async def test_handle_error_event_reconnect_last_station_deleted(
@@ -538,4 +546,49 @@ async def test_send_action_with_params(hass: HomeAssistant) -> None:
     call_args = mock_ws.send_str.call_args[0][0]
     assert "action" in call_args or "volume.set" in call_args
     assert "50" in call_args
+
+
+def test_handle_process_event_sets_initial_event(hass: HomeAssistant) -> None:
+    """_handle_process_event sets _initial_process_event for async_connect wait."""
+    coord = PianobarCoordinator(hass, "127.0.0.1", 8080)
+    coord._initial_process_event.clear()
+    assert not coord._initial_process_event.is_set()
+    coord._handle_process_event(
+        {"playing": False, "paused": False, "volume": 0, "station": "", "stationId": ""}
+    )
+    assert coord._initial_process_event.is_set()
+
+
+async def test_async_connect_continues_if_process_times_out(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """If no process arrives, async_connect logs a warning and still returns."""
+    coord = PianobarCoordinator(hass, "127.0.0.1", 8080)
+    mock_ws = MagicMock()
+    mock_ws.closed = False
+    mock_ws.send_str = AsyncMock()
+    mock_ws.close = AsyncMock()
+
+    async def fake_listen_never_emits_process() -> None:
+        await asyncio.sleep(1.0)
+
+    with patch("custom_components.pianobar.coordinator.aiohttp.ClientSession") as mock_session_cls:
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_session.close = AsyncMock()
+        mock_session.ws_connect = AsyncMock(return_value=mock_ws)
+        mock_session_cls.return_value = mock_session
+
+        with patch.object(coord, "_listen", new=fake_listen_never_emits_process):
+            with patch(
+                "custom_components.pianobar.coordinator.INITIAL_PROCESS_TIMEOUT", 0.05
+            ):
+                with caplog.at_level(
+                    logging.WARNING, logger="custom_components.pianobar.coordinator"
+                ):
+                    await coord.async_connect()
+
+    assert not coord._initial_process_event.is_set()
+    assert "No process event received" in caplog.text
+    await coord.async_disconnect()
 

@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
+    INITIAL_PROCESS_TIMEOUT,
     WS_CONNECT_TIMEOUT,
     WS_MAX_RECONNECT_DELAY,
     WS_RECONNECT_DELAY,
@@ -39,7 +40,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
         self._listen_task: asyncio.Task | None = None
         self._reconnect_delay = WS_RECONNECT_DELAY
         self._is_closing = False
-        
+        self._initial_process_event = asyncio.Event()
+
         # State data
         self.data: dict[str, Any] = {
             "playing": False,
@@ -62,6 +64,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
     async def async_connect(self) -> None:
         """Connect to the WebSocket."""
+        self._initial_process_event.clear()
+
         if self._session is None:
             self._session = aiohttp.ClientSession()
 
@@ -85,8 +89,20 @@ class PianobarCoordinator(DataUpdateCoordinator):
             # Start listening for messages
             self._listen_task = asyncio.create_task(self._listen())
             
-            # Request initial state
+            # Request initial state (server replies with unicast `process`)
             await self.send_event("query", None)
+
+            try:
+                await asyncio.wait_for(
+                    self._initial_process_event.wait(),
+                    timeout=INITIAL_PROCESS_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    "No process event received within %ss after query; "
+                    "entities may miss initial account/station data until next update",
+                    INITIAL_PROCESS_TIMEOUT,
+                )
             
         except asyncio.TimeoutError as err:
             _LOGGER.error("Timeout connecting to Pianobar")
@@ -259,6 +275,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
             self.data["accounts"] = payload["accounts"]
         if "current_account" in payload:
             self.data["current_account"] = payload["current_account"]
+
+        self._initial_process_event.set()
 
     def _handle_start_event(self, payload: dict[str, Any]) -> None:
         """Handle start event (new song started)."""

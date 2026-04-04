@@ -13,6 +13,8 @@ DEFAULT_NAME = "Pianobar"
 WS_CONNECT_TIMEOUT = 10
 WS_RECONNECT_DELAY = 5
 WS_MAX_RECONNECT_DELAY = 300
+# Wait for first `process` after `query` so coordinator.data is populated before platforms load
+INITIAL_PROCESS_TIMEOUT = 30.0
 
 # Services
 SERVICE_LOVE_SONG = "love_song"
