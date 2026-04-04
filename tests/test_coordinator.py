@@ -567,6 +567,7 @@ async def test_async_connect_continues_if_process_times_out(
     mock_ws = MagicMock()
     mock_ws.closed = False
     mock_ws.send_str = AsyncMock()
+    mock_ws.close = AsyncMock()
 
     async def fake_listen_never_emits_process() -> None:
         await asyncio.sleep(1.0)
