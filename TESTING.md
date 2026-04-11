@@ -14,11 +14,18 @@ This integration includes a comprehensive test suite with **100+ test cases** co
 
 ## Quick Start
 
+Use **Python 3.11+** and a virtualenv so `pytest-homeassistant-custom-component` can install Home Assistant test deps:
+
 ```bash
-# Install dependencies
+cd /path/to/remote-pianobar-ha
+python3.11 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements_test.txt
 
-# Run all tests
+# Run all tests (uses .venv-py311 first, then .venv, then python3 — see scripts/run_tests.sh)
+./scripts/run_tests.sh tests/
+
+# Or explicitly:
 pytest tests/
 
 # Run with coverage report
@@ -27,6 +34,8 @@ pytest tests/ --cov=custom_components/pianobar --cov-report=html
 # View coverage report
 open htmlcov/index.html
 ```
+
+If `pytest` fails with `No module named 'homeassistant'`, recreate the venv with Python 3.11+ and reinstall `requirements_test.txt`.
 
 ## Test Modules
 
