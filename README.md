@@ -597,14 +597,17 @@ const isLoved = entity.attributes.rating === 1;
 
 ### Running Tests
 
-To run the test suite locally:
+To run the test suite locally, use **Python 3.11+** (see [TESTING.md](TESTING.md)):
 
 ```bash
-# Install test dependencies
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements_test.txt
 
-# Run all tests
-pytest tests/
+# Run all tests (wrapper prefers .venv-py311, then .venv)
+./scripts/run_tests.sh tests/
+
+# Or: pytest tests/
 
 # Run tests with coverage
 pytest tests/ --cov=custom_components/pianobar --cov-report=term-missing
