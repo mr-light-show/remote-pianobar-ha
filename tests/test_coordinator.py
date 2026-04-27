@@ -133,6 +133,41 @@ async def test_handle_process_event_accounts_and_current_account(
     assert coordinator._initial_process_event.is_set()
 
 
+async def test_handle_process_event_song_rating_preserves_elapsed(
+    hass: HomeAssistant,
+) -> None:
+    """Process with updated song.rating sets data['song']['rating'] and keeps elapsed (not zeroed).
+    In-place rating sync uses `process` on the server; `start` would reset elapsed to 0.
+    """
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data["elapsed"] = 99
+
+    song = {
+        "title": "Test Song",
+        "artist": "Test Artist",
+        "album": "Test Album",
+        "coverArt": "https://example.com/art.jpg",
+        "rating": 1,
+        "duration": 240,
+        "trackToken": "test_track_token",
+        "songStationName": "Test Station",
+    }
+    payload = {
+        "playing": True,
+        "paused": False,
+        "volume": 50,
+        "maxGain": 10,
+        "station": "Test Station 1",
+        "stationId": "123456789",
+        "elapsed": 99,
+        "song": song,
+    }
+    coordinator._handle_process_event(payload)
+
+    assert coordinator.data["song"]["rating"] == 1
+    assert coordinator.data["elapsed"] == 99
+
+
 async def test_handle_error_event_reconnect_last_station_deleted(
     hass: HomeAssistant,
 ) -> None:
