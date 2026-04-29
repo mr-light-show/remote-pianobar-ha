@@ -62,8 +62,38 @@ class PianobarCoordinator(DataUpdateCoordinator):
         """Return True if WebSocket is connected."""
         return self._ws is not None and not self._ws.closed
 
+    async def _async_release_connection(self) -> None:
+        """Cancel listen task and close WebSocket + ClientSession."""
+        if self._listen_task:
+            self._listen_task.cancel()
+            try:
+                await self._listen_task
+            except asyncio.CancelledError:
+                pass
+            self._listen_task = None
+
+        if self._ws and not self._ws.closed:
+            await self._ws.close()
+        self._ws = None
+
+        if self._session and not self._session.closed:
+            await self._session.close()
+        self._session = None
+
+    async def _async_cleanup_failed_connect(self) -> None:
+        """Release resources after a failed connect; avoid leaking aiohttp sessions."""
+        # _listen() finally schedules reconnect only when not _is_closing; set True
+        # before cancelling the listen task so teardown does not spawn _reconnect().
+        self._is_closing = True
+        try:
+            await self._async_release_connection()
+        finally:
+            self._is_closing = False
+
     async def async_connect(self) -> None:
         """Connect to the WebSocket."""
+        # Allow reuse of this coordinator after partial teardown (e.g. failed setup retry).
+        self._is_closing = False
         self._initial_process_event.clear()
 
         if self._session is None:
@@ -106,23 +136,17 @@ class PianobarCoordinator(DataUpdateCoordinator):
             
         except asyncio.TimeoutError as err:
             _LOGGER.error("Timeout connecting to Pianobar")
+            await self._async_cleanup_failed_connect()
             raise ConnectionError("Connection timeout") from err
         except Exception as err:
             _LOGGER.error("Error connecting to Pianobar: %s", err)
+            await self._async_cleanup_failed_connect()
             raise ConnectionError(f"Connection error: {err}") from err
 
     async def async_disconnect(self) -> None:
         """Disconnect from the WebSocket."""
         self._is_closing = True
-        
-        if self._listen_task:
-            self._listen_task.cancel()
-            try:
-                await self._listen_task
-            except asyncio.CancelledError:
-                pass
-            self._listen_task = None
-            
+
         if self._reconnect_task:
             self._reconnect_task.cancel()
             try:
@@ -130,14 +154,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
             except asyncio.CancelledError:
                 pass
             self._reconnect_task = None
-        
-        if self._ws and not self._ws.closed:
-            await self._ws.close()
-            self._ws = None
-            
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
+
+        await self._async_release_connection()
 
     async def _listen(self) -> None:
         """Listen for WebSocket messages."""
@@ -163,6 +181,21 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 # Clear playback state on connection loss so player cards reset
                 self._clear_playback_state()
                 self.async_set_updated_data(self.data)
+                # Drop stale reconnect loop if still running; release dead socket before retry.
+                if self._reconnect_task and not self._reconnect_task.done():
+                    self._reconnect_task.cancel()
+                    try:
+                        await self._reconnect_task
+                    except asyncio.CancelledError:
+                        pass
+                    self._reconnect_task = None
+                if self._ws is not None:
+                    try:
+                        if not self._ws.closed:
+                            await self._ws.close()
+                    except Exception:
+                        pass
+                    self._ws = None
                 self._reconnect_task = asyncio.create_task(self._reconnect())
 
     async def _reconnect(self) -> None:
