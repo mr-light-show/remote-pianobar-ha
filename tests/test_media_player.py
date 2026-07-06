@@ -375,18 +375,34 @@ async def test_media_player_turn_on_disconnected(
     mock_coordinator.send_action.assert_called_once_with("app.pandora-reconnect")
 
 
-async def test_media_player_turn_off(
+async def test_media_player_turn_off_when_playing(
     hass: HomeAssistant,
     mock_config_entry,
     mock_coordinator,
 ) -> None:
-    """Test turn off calls pandora-disconnect."""
+    """Test turn off pauses when playing (soft disconnect)."""
+    mock_coordinator.data = {"playing": True, "paused": False, "station": "Test"}
     mock_coordinator.send_action = AsyncMock()
-    
+
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     await player.async_turn_off()
-    
-    mock_coordinator.send_action.assert_called_once_with("app.pandora-disconnect")
+
+    mock_coordinator.send_action.assert_called_once_with("playback.pause")
+
+
+async def test_media_player_turn_off_when_paused(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """Test turn off is noop when already paused."""
+    mock_coordinator.data = {"playing": True, "paused": True, "station": "Test"}
+    mock_coordinator.send_action = AsyncMock()
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_turn_off()
+
+    mock_coordinator.send_action.assert_not_called()
 
 
 async def test_media_player_toggle_when_off(
@@ -410,12 +426,27 @@ async def test_media_player_toggle_when_playing(
     mock_config_entry,
     mock_coordinator,
 ) -> None:
-    """Test toggle when state is not OFF calls turn off (disconnect)."""
+    """Test toggle when playing pauses (soft disconnect)."""
     mock_coordinator.data = {"playing": True, "paused": False, "station": "Test"}
     mock_coordinator.send_action = AsyncMock()
-    
+
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     await player.async_toggle()
-    
-    mock_coordinator.send_action.assert_called_once_with("app.pandora-disconnect")
+
+    mock_coordinator.send_action.assert_called_once_with("playback.pause")
+
+
+async def test_media_player_toggle_when_paused(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """Test toggle when paused resumes playback."""
+    mock_coordinator.data = {"playing": True, "paused": True, "station": "Test"}
+    mock_coordinator.send_action = AsyncMock()
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_toggle()
+
+    mock_coordinator.send_action.assert_called_once_with("playback.play")
 

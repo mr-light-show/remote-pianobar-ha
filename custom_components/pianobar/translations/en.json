@@ -110,6 +110,10 @@
       "name": "Reconnect",
       "description": "Force reconnect to remote-pianobar WebSocket"
     },
+    "disconnect": {
+      "name": "Disconnect from Pandora",
+      "description": "Immediately stop playback and disconnect from Pandora (does not wait for pause timeout)"
+    },
     "explain_song": {
       "name": "Explain song",
       "description": "Get Pandora's explanation for why the current song was chosen"

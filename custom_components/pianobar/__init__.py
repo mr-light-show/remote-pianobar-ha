@@ -29,6 +29,7 @@ from .const import (
     SERVICE_GET_UPCOMING,
     SERVICE_LOVE_SONG,
     SERVICE_RECONNECT,
+    SERVICE_DISCONNECT,
     SERVICE_RENAME_STATION,
     SERVICE_RESET_VOLUME,
     SERVICE_SEARCH,
@@ -147,6 +148,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 _LOGGER.error("Failed to reconnect: %s", err)
         else:
             _LOGGER.info("Already connected to Pianobar")
+
+    async def async_disconnect(call: ServiceCall) -> None:
+        """Handle disconnect service call (immediate Pandora disconnect)."""
+        coordinator = _get_coordinator_from_call(hass, call)
+        await coordinator.send_action("app.pandora-disconnect")
 
     async def async_explain_song(call: ServiceCall) -> dict[str, Any]:
         """Handle explain_song service call."""
@@ -362,6 +368,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         DOMAIN,
         SERVICE_RECONNECT,
         async_reconnect,
+        schema=vol.Schema({
+            vol.Optional("entity_id"): cv.entity_ids,
+        }),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DISCONNECT,
+        async_disconnect,
         schema=vol.Schema({
             vol.Optional("entity_id"): cv.entity_ids,
         }),

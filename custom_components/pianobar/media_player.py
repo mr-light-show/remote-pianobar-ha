@@ -154,6 +154,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
                 "rename_station",
                 "delete_station",
                 "reconnect",
+                "disconnect",
                 "explain_song",
                 "get_upcoming",
                 "set_quick_mix",
@@ -212,15 +213,20 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         await self.coordinator.send_action("app.pandora-reconnect")
 
     async def async_turn_off(self) -> None:
-        """Turn off - stop playback and disconnect from Pandora."""
-        await self.coordinator.send_action("app.pandora-disconnect")
+        """Pause playback; Pandora disconnects via player pause_timeout."""
+        if self.coordinator.data.get("playing") and not self.coordinator.data.get(
+            "paused"
+        ):
+            await self.coordinator.send_action("playback.pause")
 
     async def async_toggle(self) -> None:
-        """Toggle the media player - turn on if OFF, otherwise turn off."""
+        """Toggle play/pause, or reconnect when OFF."""
         if self.state == MediaPlayerState.OFF:
             await self.async_turn_on()
-        else:
+        elif self.state == MediaPlayerState.PLAYING:
             await self.async_turn_off()
+        else:
+            await self.async_media_play()
 
     async def async_media_next_track(self) -> None:
         """Send next track command."""
