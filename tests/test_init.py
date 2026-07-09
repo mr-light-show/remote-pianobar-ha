@@ -30,6 +30,7 @@ from custom_components.pianobar.const import (
     SERVICE_LOVE_SONG,
     SERVICE_RECONNECT,
     SERVICE_DISCONNECT,
+    SERVICE_DISCONNECT_PANDORA,
     SERVICE_RENAME_STATION,
     SERVICE_RESET_VOLUME,
     SERVICE_SEARCH,
@@ -953,7 +954,35 @@ async def test_service_disconnect(
     hass: HomeAssistant,
     mock_config_entry: ConfigEntry,
 ) -> None:
-    """disconnect service sends app.pandora-disconnect."""
+    """disconnect service closes WebSocket to remote-pianobar."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.async_disconnect = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_DISCONNECT,
+            {},
+            blocking=True,
+        )
+
+        mock_coordinator.async_disconnect.assert_called_once()
+
+
+async def test_service_disconnect_pandora(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """disconnect_pandora service sends app.pandora-disconnect."""
     mock_config_entry.add_to_hass(hass)
 
     with patch(
@@ -969,7 +998,7 @@ async def test_service_disconnect(
 
         await hass.services.async_call(
             DOMAIN,
-            SERVICE_DISCONNECT,
+            SERVICE_DISCONNECT_PANDORA,
             {},
             blocking=True,
         )

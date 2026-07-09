@@ -108,11 +108,15 @@
     },
     "reconnect": {
       "name": "Reconnect",
-      "description": "Force reconnect to remote-pianobar WebSocket"
+      "description": "Connect Home Assistant to the remote-pianobar WebSocket"
     },
     "disconnect": {
+      "name": "Disconnect from player",
+      "description": "Disconnect Home Assistant from the remote-pianobar WebSocket (does not disconnect Pandora)"
+    },
+    "disconnect_pandora": {
       "name": "Disconnect from Pandora",
-      "description": "Immediately stop playback and disconnect from Pandora (does not wait for pause timeout)"
+      "description": "Immediately stop playback and disconnect from Pandora on the player"
     },
     "explain_song": {
       "name": "Explain song",
