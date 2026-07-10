@@ -145,6 +145,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
         attrs: dict[str, Any] = {
+            "player_connected": self.coordinator.is_connected,
             "pandora_connected": self.coordinator.data.get("pandora_connected", True),
             "supported_actions": [
                 "love_song",
@@ -154,6 +155,8 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
                 "rename_station",
                 "delete_station",
                 "reconnect",
+                "disconnect",
+                "disconnect_pandora",
                 "explain_song",
                 "get_upcoming",
                 "set_quick_mix",
@@ -199,28 +202,26 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         await self.coordinator.send_action("playback.pause")
 
     async def async_turn_on(self) -> None:
-        """Turn on - reconnect to Pandora and fetch stations."""
-        # Force WebSocket reconnect if disconnected
-        if not self.coordinator.is_connected:
-            try:
-                await self.coordinator.async_connect()
-            except Exception as err:
-                _LOGGER.error("Failed to reconnect: %s", err)
-                return
-        
-        # Re-authenticate with Pandora and fetch stations
-        await self.coordinator.send_action("app.pandora-reconnect")
+        """Connect Home Assistant to the remote-pianobar WebSocket."""
+        if self.coordinator.is_connected:
+            return
+        try:
+            await self.coordinator.async_connect()
+        except Exception as err:
+            _LOGGER.error("Failed to connect to Pianobar: %s", err)
 
     async def async_turn_off(self) -> None:
-        """Turn off - stop playback and disconnect from Pandora."""
-        await self.coordinator.send_action("app.pandora-disconnect")
+        """Disconnect Home Assistant from the remote-pianobar WebSocket."""
+        await self.coordinator.async_disconnect()
 
     async def async_toggle(self) -> None:
-        """Toggle the media player - turn on if OFF, otherwise turn off."""
-        if self.state == MediaPlayerState.OFF:
+        """Toggle WS connect, or play/pause when connected to the player."""
+        if not self.coordinator.is_connected:
             await self.async_turn_on()
+        elif self.state == MediaPlayerState.PLAYING:
+            await self.async_media_pause()
         else:
-            await self.async_turn_off()
+            await self.async_media_play()
 
     async def async_media_next_track(self) -> None:
         """Send next track command."""
@@ -266,11 +267,14 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         )
 
     async def _play_station(self, station_id_or_name: str) -> None:
-        """Play a station by ID or name, auto-reconnecting if needed."""
-        # Auto-reconnect if disconnected from Pandora
-        if self.state == MediaPlayerState.OFF:
-            await self.async_turn_on()
-        
+        """Play a station by ID or name."""
+        if not self.coordinator.is_connected:
+            try:
+                await self.coordinator.async_connect()
+            except Exception as err:
+                _LOGGER.error("Failed to connect to Pianobar: %s", err)
+                return
+
         station = self._find_station(station_id_or_name)
         
         if station:

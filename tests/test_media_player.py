@@ -310,16 +310,19 @@ async def test_media_player_extra_state_attributes_no_song(
         "stations": mock_station_data,
         "pandora_connected": True,
     }
+    mock_coordinator.is_connected = True
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     attrs = player.extra_state_attributes
     
     assert "supported_actions" in attrs
     assert "love_song" in attrs["supported_actions"]
+    assert "disconnect_pandora" in attrs["supported_actions"]
     assert attrs["stations"] == mock_station_data
     assert attrs["rating"] == 0
     assert attrs["song_station_name"] == ""
     assert attrs["pandora_connected"] is True
+    assert attrs["player_connected"] is True
 
 
 async def test_media_player_extra_state_attributes_with_song(
@@ -346,15 +349,14 @@ async def test_media_player_turn_on_connected(
     mock_config_entry,
     mock_coordinator,
 ) -> None:
-    """Test turn on when already connected calls pandora-reconnect only."""
-    mock_coordinator.data = {"station": "Test"}
+    """Test turn on is noop when WebSocket already connected."""
     mock_coordinator.is_connected = True
-    mock_coordinator.send_action = AsyncMock()
+    mock_coordinator.async_connect = AsyncMock()
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     await player.async_turn_on()
     
-    mock_coordinator.send_action.assert_called_once_with("app.pandora-reconnect")
+    mock_coordinator.async_connect.assert_not_called()
 
 
 async def test_media_player_turn_on_disconnected(
@@ -362,17 +364,86 @@ async def test_media_player_turn_on_disconnected(
     mock_config_entry,
     mock_coordinator,
 ) -> None:
-    """Test turn on when disconnected calls async_connect then pandora-reconnect."""
-    mock_coordinator.data = {"station": ""}
+    """Test turn on connects WebSocket when disconnected."""
     mock_coordinator.is_connected = False
     mock_coordinator.async_connect = AsyncMock()
-    mock_coordinator.send_action = AsyncMock()
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     await player.async_turn_on()
     
     mock_coordinator.async_connect.assert_called_once()
-    mock_coordinator.send_action.assert_called_once_with("app.pandora-reconnect")
+
+
+async def test_media_player_turn_on_connect_failure(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """Test turn on logs error when WebSocket connect fails."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.async_connect = AsyncMock(
+        side_effect=RuntimeError("connection refused")
+    )
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_turn_on()
+
+    mock_coordinator.async_connect.assert_called_once()
+
+
+async def test_media_player_extra_state_attributes_player_disconnected(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """Test player_connected attribute when WebSocket is down."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.data = {}
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    attrs = player.extra_state_attributes
+
+    assert attrs["player_connected"] is False
+
+
+async def test_media_player_select_source_connects_when_disconnected(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+    mock_station_data,
+) -> None:
+    """Test selecting a source connects WebSocket when disconnected."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.data = {"stations": mock_station_data}
+    mock_coordinator.async_connect = AsyncMock()
+    mock_coordinator.send_event = AsyncMock()
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_select_source("Test Station 1")
+
+    mock_coordinator.async_connect.assert_called_once()
+    mock_coordinator.send_event.assert_called_once_with("station.change", "123456789")
+
+
+async def test_media_player_select_source_connect_failure(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+    mock_station_data,
+) -> None:
+    """Test selecting a source aborts when WebSocket connect fails."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.data = {"stations": mock_station_data}
+    mock_coordinator.async_connect = AsyncMock(
+        side_effect=RuntimeError("connection refused")
+    )
+    mock_coordinator.send_event = AsyncMock()
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_select_source("Test Station 1")
+
+    mock_coordinator.async_connect.assert_called_once()
+    mock_coordinator.send_event.assert_not_called()
 
 
 async def test_media_player_turn_off(
@@ -380,29 +451,28 @@ async def test_media_player_turn_off(
     mock_config_entry,
     mock_coordinator,
 ) -> None:
-    """Test turn off calls pandora-disconnect."""
-    mock_coordinator.send_action = AsyncMock()
+    """Test turn off disconnects WebSocket."""
+    mock_coordinator.async_disconnect = AsyncMock()
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     await player.async_turn_off()
     
-    mock_coordinator.send_action.assert_called_once_with("app.pandora-disconnect")
+    mock_coordinator.async_disconnect.assert_called_once()
 
 
-async def test_media_player_toggle_when_off(
+async def test_media_player_toggle_when_ws_disconnected(
     hass: HomeAssistant,
     mock_config_entry,
     mock_coordinator,
 ) -> None:
-    """Test toggle when state is OFF calls turn on (reconnect)."""
-    mock_coordinator.data = {"station": ""}
-    mock_coordinator.is_connected = True
-    mock_coordinator.send_action = AsyncMock()
+    """Test toggle when WebSocket down connects to player."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.async_connect = AsyncMock()
     
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     await player.async_toggle()
     
-    mock_coordinator.send_action.assert_called_once_with("app.pandora-reconnect")
+    mock_coordinator.async_connect.assert_called_once()
 
 
 async def test_media_player_toggle_when_playing(
@@ -410,12 +480,29 @@ async def test_media_player_toggle_when_playing(
     mock_config_entry,
     mock_coordinator,
 ) -> None:
-    """Test toggle when state is not OFF calls turn off (disconnect)."""
+    """Test toggle when playing pauses playback."""
+    mock_coordinator.is_connected = True
     mock_coordinator.data = {"playing": True, "paused": False, "station": "Test"}
     mock_coordinator.send_action = AsyncMock()
-    
+
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
     await player.async_toggle()
-    
-    mock_coordinator.send_action.assert_called_once_with("app.pandora-disconnect")
+
+    mock_coordinator.send_action.assert_called_once_with("playback.pause")
+
+
+async def test_media_player_toggle_when_paused(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """Test toggle when paused resumes playback."""
+    mock_coordinator.is_connected = True
+    mock_coordinator.data = {"playing": True, "paused": True, "station": "Test"}
+    mock_coordinator.send_action = AsyncMock()
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_toggle()
+
+    mock_coordinator.send_action.assert_called_once_with("playback.play")
 

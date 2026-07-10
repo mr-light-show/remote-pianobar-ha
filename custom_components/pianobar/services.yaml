@@ -67,6 +67,20 @@ reconnect:
       domain: media_player
       integration: pianobar
 
+disconnect:
+  fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
+
+disconnect_pandora:
+  fields: {}
+  target:
+    entity:
+      domain: media_player
+      integration: pianobar
+
 explain_song:
   fields: {}
   target:

@@ -133,6 +133,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     "entities may miss initial account/station data until next update",
                     INITIAL_PROCESS_TIMEOUT,
                 )
+
+            self._notify_connection_changed()
             
         except asyncio.TimeoutError as err:
             _LOGGER.error("Timeout connecting to Pianobar")
@@ -156,6 +158,11 @@ class PianobarCoordinator(DataUpdateCoordinator):
             self._reconnect_task = None
 
         await self._async_release_connection()
+        self._notify_connection_changed()
+
+    def _notify_connection_changed(self) -> None:
+        """Refresh entities when WebSocket connection state changes."""
+        self.async_set_updated_data(self.data)
 
     async def _listen(self) -> None:
         """Listen for WebSocket messages."""
