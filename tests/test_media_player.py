@@ -374,6 +374,78 @@ async def test_media_player_turn_on_disconnected(
     mock_coordinator.async_connect.assert_called_once()
 
 
+async def test_media_player_turn_on_connect_failure(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """Test turn on logs error when WebSocket connect fails."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.async_connect = AsyncMock(
+        side_effect=RuntimeError("connection refused")
+    )
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_turn_on()
+
+    mock_coordinator.async_connect.assert_called_once()
+
+
+async def test_media_player_extra_state_attributes_player_disconnected(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """Test player_connected attribute when WebSocket is down."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.data = {}
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    attrs = player.extra_state_attributes
+
+    assert attrs["player_connected"] is False
+
+
+async def test_media_player_select_source_connects_when_disconnected(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+    mock_station_data,
+) -> None:
+    """Test selecting a source connects WebSocket when disconnected."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.data = {"stations": mock_station_data}
+    mock_coordinator.async_connect = AsyncMock()
+    mock_coordinator.send_event = AsyncMock()
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_select_source("Test Station 1")
+
+    mock_coordinator.async_connect.assert_called_once()
+    mock_coordinator.send_event.assert_called_once_with("station.change", "123456789")
+
+
+async def test_media_player_select_source_connect_failure(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+    mock_station_data,
+) -> None:
+    """Test selecting a source aborts when WebSocket connect fails."""
+    mock_coordinator.is_connected = False
+    mock_coordinator.data = {"stations": mock_station_data}
+    mock_coordinator.async_connect = AsyncMock(
+        side_effect=RuntimeError("connection refused")
+    )
+    mock_coordinator.send_event = AsyncMock()
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_select_source("Test Station 1")
+
+    mock_coordinator.async_connect.assert_called_once()
+    mock_coordinator.send_event.assert_not_called()
+
+
 async def test_media_player_turn_off(
     hass: HomeAssistant,
     mock_config_entry,
