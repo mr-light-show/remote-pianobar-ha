@@ -1,8 +1,8 @@
 """Media player platform for Pianobar."""
 from __future__ import annotations
 
-from datetime import datetime
 import logging
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.media_player import (
@@ -22,6 +22,9 @@ from .const import DOMAIN, MEDIA_TYPE_STATION
 from .coordinator import PianobarCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# Wait for the station list requested when a station is not found
+STATIONS_REFRESH_TIMEOUT = 5.0
 
 SUPPORTED_FEATURES = (
     MediaPlayerEntityFeature.PAUSE
@@ -66,6 +69,11 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
             "manufacturer": "Pianobar",
             "model": "Remote Pianobar",
         }
+
+    @property
+    def available(self) -> bool:
+        """Unavailable once a dropped connection outlasts the grace period."""
+        return super().available and self.coordinator.player_available
 
     @property
     def state(self) -> MediaPlayerState:
@@ -146,6 +154,9 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         """Return entity specific state attributes."""
         attrs: dict[str, Any] = {
             "player_connected": self.coordinator.is_connected,
+            "player_busy": self.coordinator.player_busy,
+            # The card compares its own major version with this one
+            "integration_version": self.coordinator.integration_version,
             "pandora_connected": self.coordinator.data.get("pandora_connected", True),
             "supported_actions": [
                 "love_song",
@@ -207,7 +218,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
             return
         try:
             await self.coordinator.async_connect()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - log any connect failure instead of crashing
             _LOGGER.error("Failed to connect to Pianobar: %s", err)
 
     async def async_turn_off(self) -> None:
@@ -271,7 +282,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         if not self.coordinator.is_connected:
             try:
                 await self.coordinator.async_connect()
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - log any connect failure instead of crashing
                 _LOGGER.error("Failed to connect to Pianobar: %s", err)
                 return
 
@@ -284,6 +295,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         # Station not found - refresh and retry
         _LOGGER.warning("Station '%s' not found, refreshing station list", station_id_or_name)
         await self.coordinator.send_event("query.stations", None)
+        await self.coordinator.async_wait_for_stations(STATIONS_REFRESH_TIMEOUT)
         station = self._find_station(station_id_or_name)
         if station:
             await self.coordinator.send_event("station.change", station["id"])

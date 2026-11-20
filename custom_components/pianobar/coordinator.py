@@ -4,29 +4,85 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import aiohttp
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BUSY_OPERATION,
+    BUSY_WINDOW,
     DOMAIN,
     INITIAL_PROCESS_TIMEOUT,
+    OPERATION_RESPONSE_KEYS,
+    RECONNECT_GRACE_PERIOD,
+    REQUEST_TOO_LARGE_OPERATION,
+    RESPONSE_TIMEOUT,
+    STATIONS_RETRY_DELAYS,
     WS_CONNECT_TIMEOUT,
+    WS_HEARTBEAT,
     WS_MAX_RECONNECT_DELAY,
+    WS_MAX_REQUEST_BYTES,
     WS_RECONNECT_DELAY,
+)
+from .version_check import (
+    ISSUE_TRANSLATION_KEY,
+    MISSING,
+    OLDER_PLAYER_VERSION,
+    parse_major,
+    player_major,
+    version_issue_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+STATION_INFO_KEY = "station_info"
+# Player version not yet checked on this connection
+_UNCHECKED = object()
+
+
+def station_info_key(station_id: str) -> str:
+    """Return the response key for the `stationInfo` reply about one station."""
+    return f"{STATION_INFO_KEY}:{station_id}"
+
+
+def _is_station_info_key(key: str) -> bool:
+    return key == STATION_INFO_KEY or key.startswith(f"{STATION_INFO_KEY}:")
+
+
+@dataclass
+class _ResponseFailure:
+    """Stored in place of a reply to make the waiting service fail."""
+
+    translation_key: str
+    placeholders: dict[str, str] = field(default_factory=dict)
 
 
 class PianobarCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Pianobar data from WebSocket."""
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
-        """Initialize."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        host: str,
+        port: int,
+        *,
+        entry_id: str | None = None,
+        integration_version: str | None = None,
+    ) -> None:
+        """Initialize.
+
+        With `entry_id` and `integration_version` (from manifest.json), a
+        player of another major version raises a Repairs issue.
+        """
         super().__init__(
             hass,
             _LOGGER,
@@ -41,6 +97,10 @@ class PianobarCoordinator(DataUpdateCoordinator):
         self._reconnect_delay = WS_RECONNECT_DELAY
         self._is_closing = False
         self._initial_process_event = asyncio.Event()
+        self.entry_id = entry_id
+        self.integration_version = integration_version
+        # Player version last checked on this connection
+        self._checked_player_version: object = _UNCHECKED
 
         # State data
         self.data: dict[str, Any] = {
@@ -56,6 +116,37 @@ class PianobarCoordinator(DataUpdateCoordinator):
         
         # Response data storage (for service calls that return data)
         self._response_data: dict[str, Any] = {}
+        # Response keys services are currently waiting for, oldest first, with
+        # the number of waits for each
+        self._pending_waits: Counter[str] = Counter()
+        # Busy episode: loop time of its first notice, and the timer ending it
+        self._busy_since: float | None = None
+        self._busy_unsub: CALLBACK_TYPE | None = None
+        # Reconnect grace period: timer running after a dropped connection,
+        # and whether it ended without a reconnect
+        self._grace_unsub: CALLBACK_TYPE | None = None
+        self._grace_expired = False
+        # Station list: set by any `stations` event on the current connection;
+        # bounded re-query while it is missing
+        self._stations_received = asyncio.Event()
+        self._stations_waiters: list[asyncio.Event] = []
+        self._stations_retry_unsub: CALLBACK_TYPE | None = None
+        self._stations_retry_attempt = 0
+        self._stations_retry_at = 0.0
+
+    @property
+    def player_available(self) -> bool:
+        """Return False once a dropped connection outlasted the grace period.
+
+        True while connected, while reconnecting within the grace period, and
+        after a user disconnect (so turn_on still works).
+        """
+        return not self._grace_expired
+
+    @property
+    def player_busy(self) -> bool:
+        """Return True while the player is refusing requests as busy."""
+        return self._busy_since is not None
 
     @property
     def is_connected(self) -> bool:
@@ -95,6 +186,10 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # Allow reuse of this coordinator after partial teardown (e.g. failed setup retry).
         self._is_closing = False
         self._initial_process_event.clear()
+        self._reset_version_check()
+        self._cancel_stations_retry()
+        self._stations_received.clear()
+        self._stations_retry_attempt = 0
 
         if self._session is None:
             self._session = aiohttp.ClientSession()
@@ -107,7 +202,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._session.ws_connect(
                     url,
                     protocols=["socketio"],
-                    heartbeat=30,
+                    heartbeat=WS_HEARTBEAT,
                 ),
                 timeout=WS_CONNECT_TIMEOUT,
             )
@@ -127,16 +222,20 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     self._initial_process_event.wait(),
                     timeout=INITIAL_PROCESS_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.warning(
                     "No process event received within %ss after query; "
                     "entities may miss initial account/station data until next update",
                     INITIAL_PROCESS_TIMEOUT,
                 )
 
+            if self.is_connected:
+                self._end_grace()
+                if not self._stations_received.is_set():
+                    self._schedule_stations_retry(STATIONS_RETRY_DELAYS[0])
             self._notify_connection_changed()
             
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             _LOGGER.error("Timeout connecting to Pianobar")
             await self._async_cleanup_failed_connect()
             raise ConnectionError("Connection timeout") from err
@@ -158,7 +257,36 @@ class PianobarCoordinator(DataUpdateCoordinator):
             self._reconnect_task = None
 
         await self._async_release_connection()
+        self._cancel_stations_retry()
+        self._cancel_grace()
+        self._grace_expired = False
+        self._clear_busy()
+        # Show `off` rather than the state from before the disconnect
+        self._clear_playback_state()
         self._notify_connection_changed()
+
+    def _cancel_grace(self) -> None:
+        """Stop the reconnect grace timer if it is running."""
+        if self._grace_unsub is not None:
+            self._grace_unsub()
+            self._grace_unsub = None
+
+    def _end_grace(self) -> None:
+        """The connection is back: stop the grace period, drop stale busy state."""
+        if self._grace_unsub is None and not self._grace_expired:
+            return
+        self._cancel_grace()
+        self._grace_expired = False
+        self._clear_busy()
+
+    @callback
+    def _async_grace_expired(self, _now: datetime) -> None:
+        """No reconnect within the grace period: clear state, go unavailable."""
+        self._grace_unsub = None
+        self._grace_expired = True
+        self._clear_playback_state()
+        self._clear_busy()
+        self.async_set_updated_data(self.data)
 
     def _notify_connection_changed(self) -> None:
         """Refresh entities when WebSocket connection state changes."""
@@ -180,13 +308,19 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("WebSocket closed")
                     break
                     
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - listener logs any failure, then falls through to reconnect
             _LOGGER.error("Error in WebSocket listener: %s", err)
         finally:
             if not self._is_closing:
                 _LOGGER.warning("WebSocket connection lost, attempting to reconnect")
-                # Clear playback state on connection loss so player cards reset
-                self._clear_playback_state()
+                # Hold the last state while reconnecting; go unavailable only if
+                # the grace period ends first. A connection that closes again
+                # before its first `process` does not restart the period.
+                self._cancel_stations_retry()
+                if self._grace_unsub is None and not self._grace_expired:
+                    self._grace_unsub = async_call_later(
+                        self.hass, RECONNECT_GRACE_PERIOD, self._async_grace_expired
+                    )
                 self.async_set_updated_data(self.data)
                 # Drop stale reconnect loop if still running; release dead socket before retry.
                 if self._reconnect_task and not self._reconnect_task.done():
@@ -200,7 +334,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     try:
                         if not self._ws.closed:
                             await self._ws.close()
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 - best-effort close of a dead socket
                         pass
                     self._ws = None
                 self._reconnect_task = asyncio.create_task(self._reconnect())
@@ -214,7 +348,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 await self.async_connect()
                 _LOGGER.info("Reconnected to Pianobar")
                 return
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - reconnect loop must survive any error
                 _LOGGER.warning(
                     "Reconnect failed, retrying in %s seconds: %s",
                     self._reconnect_delay,
@@ -236,14 +370,19 @@ class PianobarCoordinator(DataUpdateCoordinator):
             json_str = message[1:]
             event_data = json.loads(json_str)
             
-            if not isinstance(event_data, list) or len(event_data) < 2:
+            if not isinstance(event_data, list) or not event_data:
                 return
-                
+
             event_name = event_data[0]
-            event_payload = event_data[1]
-            
+            # Older players send `stop` as 2["stop"], with no payload element
+            event_payload: Any = event_data[1] if len(event_data) > 1 else None
+
             _LOGGER.debug("Received event: %s", event_name)
-            
+
+            if event_payload is None and event_name != "stop":
+                _LOGGER.debug("Ignoring event without payload: %s", event_name)
+                return
+
             # Handle different event types
             if event_name == "process":
                 self._handle_process_event(event_payload)
@@ -281,7 +420,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             
         except json.JSONDecodeError as err:
             _LOGGER.error("Failed to parse message: %s", err)
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - one bad message must not kill the listener
             _LOGGER.error("Error handling message: %s", err)
 
     def _handle_process_event(self, payload: dict[str, Any]) -> None:
@@ -316,7 +455,58 @@ class PianobarCoordinator(DataUpdateCoordinator):
         if "current_account" in payload:
             self.data["current_account"] = payload["current_account"]
 
+        # The first `process` on a new connection ends a reconnect grace period
+        self._end_grace()
         self._initial_process_event.set()
+        # Last: a failed check must not hold up the connection
+        self._check_player_version(payload.get("version"))
+
+    def _reset_version_check(self) -> None:
+        """Check (and warn about) the player version again on a new connection."""
+        self._checked_player_version = _UNCHECKED
+
+    def _check_player_version(self, version: Any) -> None:
+        """Raise or clear the Repairs issue for a player major-version mismatch.
+
+        Checked on every `process`, because a reconnect may reach another
+        player; logged once per connection. Warns only.
+        """
+        expected = parse_major(self.integration_version)
+        if self.entry_id is None or expected is None:
+            return
+        if version == self._checked_player_version:
+            return
+        self._checked_player_version = version
+        issue_id = version_issue_id(self.entry_id)
+        major = player_major(version)
+        if major is None:
+            _LOGGER.debug("Not checking player version %r: not a release version", version)
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        if major == expected:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        shown = OLDER_PLAYER_VERSION if major == MISSING else str(version)
+        _LOGGER.warning(
+            "remote-pianobar %s at %s:%s does not match this integration "
+            "(expects %s.x); update both to the same major version",
+            shown,
+            self.host,
+            self.port,
+            expected,
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_TRANSLATION_KEY,
+            translation_placeholders={
+                "player_version": shown,
+                "expected_major": str(expected),
+            },
+        )
 
     def _handle_start_event(self, payload: dict[str, Any]) -> None:
         """Handle start event (new song started)."""
@@ -358,6 +548,60 @@ class PianobarCoordinator(DataUpdateCoordinator):
         self.data["stations"] = payload
         if payload:
             self.data["pandora_connected"] = True
+        # Any list counts, an empty one too (no Pandora session yet)
+        self._stations_received.set()
+        self._cancel_stations_retry()
+        for waiter in self._stations_waiters:
+            waiter.set()
+
+    def _schedule_stations_retry(self, delay: float) -> None:
+        """(Re)schedule the next station-list re-query `delay` seconds from now."""
+        self._cancel_stations_retry()
+        self._stations_retry_at = self.hass.loop.time() + delay
+        self._stations_retry_unsub = async_call_later(
+            self.hass, delay, self._async_stations_retry
+        )
+
+    def _cancel_stations_retry(self) -> None:
+        """Cancel a pending station-list re-query."""
+        if self._stations_retry_unsub is not None:
+            self._stations_retry_unsub()
+            self._stations_retry_unsub = None
+
+    async def _async_stations_retry(self, _now: datetime) -> None:
+        """Re-send `query` while no station list has arrived.
+
+        Uses `query` (reply to this client only), not `query.stations`, which
+        the player broadcasts to every client.
+        """
+        self._stations_retry_unsub = None
+        if self._stations_received.is_set() or not self.is_connected:
+            return
+        self._stations_retry_attempt += 1
+        await self.send_event("query", None)
+        if self._stations_retry_attempt < len(STATIONS_RETRY_DELAYS):
+            self._schedule_stations_retry(
+                STATIONS_RETRY_DELAYS[self._stations_retry_attempt]
+            )
+        else:
+            _LOGGER.warning(
+                "Player %s:%s sent no station list after %s queries; not asking again",
+                self.host,
+                self.port,
+                self._stations_retry_attempt + 1,
+            )
+
+    async def async_wait_for_stations(self, timeout: float) -> bool:
+        """Wait for the next `stations` event; return False after `timeout` s."""
+        waiter = asyncio.Event()
+        self._stations_waiters.append(waiter)
+        try:
+            await asyncio.wait_for(waiter.wait(), timeout)
+        except TimeoutError:
+            return False
+        finally:
+            self._stations_waiters.remove(waiter)
+        return True
 
     def _handle_pandora_disconnected_event(self, payload: dict[str, Any]) -> None:
         """Handle pandora.disconnected (Pandora session ended; keep stations)."""
@@ -387,32 +631,119 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
     def _handle_song_explanation_event(self, payload: dict[str, Any]) -> None:
         """Handle song.explanation event (song recommendation explanation)."""
-        self._response_data["song_explanation"] = payload.get("explanation", "")
+        self._set_response("song_explanation", payload.get("explanation", ""))
 
     def _handle_upcoming_result_event(self, payload: list[dict[str, Any]]) -> None:
         """Handle query.upcoming.result event (upcoming songs)."""
-        self._response_data["upcoming"] = payload
+        self._set_response("upcoming", payload)
+
+    def _oldest_station_info_wait(self) -> str | None:
+        """Return the key of the oldest stationInfo wait not yet answered."""
+        return next(
+            (
+                k
+                for k in self._pending_waits
+                if _is_station_info_key(k) and k not in self._response_data
+            ),
+            None,
+        )
 
     def _handle_station_info_event(self, payload: dict[str, Any]) -> None:
-        """Handle stationInfo event (station seeds and feedback)."""
-        self._response_data["station_info"] = payload
+        """Handle stationInfo event (station seeds and feedback).
+
+        The reply names its station, so two overlapping get_station_info calls
+        each get their own. A reply without one (older player) answers the
+        oldest wait: the player answers one client's requests in order.
+        """
+        station_id = str(payload.get("stationId") or "")
+        if not station_id:
+            self._set_response(
+                self._oldest_station_info_wait() or STATION_INFO_KEY, payload
+            )
+            return
+        key = station_info_key(station_id)
+        if key in self._pending_waits:
+            self._set_response(key, payload)
+        else:
+            _LOGGER.debug("Ignoring stationInfo for %s: nothing waits for it", station_id)
+            self._clear_busy()
 
     def _handle_station_modes_event(self, payload: dict[str, Any]) -> None:
         """Handle stationModes event (station playback modes)."""
-        self._response_data["station_modes"] = payload.get("modes", [])
+        self._set_response("station_modes", payload.get("modes", []))
 
     def _handle_search_results_event(self, payload: dict[str, Any]) -> None:
         """Handle searchResults event (music search results)."""
-        self._response_data["search_results"] = payload
+        self._set_response("search_results", payload)
 
     def _handle_genres_event(self, payload: dict[str, Any]) -> None:
         """Handle genres event (genre categories)."""
-        self._response_data["genres"] = payload
+        self._set_response("genres", payload)
+
+    def _set_response(self, key: str, value: Any) -> None:
+        """Store a reply. Replies go only to the requester, so a reply also
+        means the player accepted one of our requests: the busy episode is over.
+        """
+        self._response_data[key] = value
+        self._clear_busy()
+
+    def _clear_busy(self) -> None:
+        """End the busy episode (listeners are notified by the caller)."""
+        if self._busy_unsub is not None:
+            self._busy_unsub()
+            self._busy_unsub = None
+        self._busy_since = None
+
+    @callback
+    def _async_busy_expired(self, _now: datetime) -> None:
+        """End the busy episode after BUSY_WINDOW without a reply."""
+        self._busy_unsub = None
+        self._clear_busy()
+        self.async_set_updated_data(self.data)
+
+    def _handle_busy(self) -> None:
+        """The player refused a request because its command queue is full."""
+        if self._busy_since is None:
+            self._busy_since = self.hass.loop.time()
+            _LOGGER.warning(
+                "Player %s:%s refused a request: command queue busy",
+                self.host,
+                self.port,
+            )
+        for key in self._pending_waits:
+            self._response_data[key] = _ResponseFailure("player_busy")
+        # Our station-list query may have been refused: ask again soon, without
+        # using up an attempt
+        if self._stations_retry_unsub is not None:
+            soonest = STATIONS_RETRY_DELAYS[0]
+            if self._stations_retry_at - self.hass.loop.time() > soonest:
+                self._schedule_stations_retry(soonest)
+        # (Re)start the window; _handle_message notifies listeners
+        if self._busy_unsub is not None:
+            self._busy_unsub()
+        self._busy_unsub = async_call_later(
+            self.hass, BUSY_WINDOW, self._async_busy_expired
+        )
 
     def _handle_error_event(self, payload: dict[str, Any]) -> None:
         """Handle error event from backend."""
         operation = payload.get("operation", "")
         message = payload.get("message", "Unknown error")
+
+        if operation == BUSY_OPERATION:
+            self._handle_busy()
+            return
+        if operation == REQUEST_TOO_LARGE_OPERATION:
+            # send_event refuses oversize frames first, so this is unexpected
+            _LOGGER.warning(
+                "Player %s:%s dropped a request as too large: %s",
+                self.host,
+                self.port,
+                message,
+            )
+            for key in self._pending_waits:
+                self._response_data[key] = _ResponseFailure("request_too_large")
+            return
         
         # Play/reconnect failed: revert playing state so UI shows Play again
         if operation in ("playback.play", "app.pandora-reconnect"):
@@ -452,36 +783,96 @@ class PianobarCoordinator(DataUpdateCoordinator):
         elif operation == "query.upcoming":
             self._response_data["upcoming"] = []  # Empty list indicates no upcoming songs
             _LOGGER.debug("Backend error for %s: %s", operation, message)
-        # Add other operations as needed
+        elif (wait_key := self._operation_wait_key(operation)) is not None:
+            # Fail the waiting service now instead of after the timeout
+            self._response_data[wait_key] = _ResponseFailure(
+                "player_request_failed", {"message": message}
+            )
+            _LOGGER.debug("Backend error for %s: %s", operation, message)
+
+    def _operation_wait_key(self, operation: str) -> str | None:
+        """Return the pending wait a reply-style operation's error fails.
+
+        A stationInfo error names no station: it belongs to the oldest wait.
+        """
+        key = OPERATION_RESPONSE_KEYS.get(operation)
+        if key == STATION_INFO_KEY:
+            return self._oldest_station_info_wait()
+        return key if key in self._pending_waits else None
 
     def get_response_data(self, key: str) -> Any:
         """Get and clear response data for a given key."""
         return self._response_data.pop(key, None)
 
-    async def wait_for_response(self, key: str, timeout: float = 5.0) -> Any:
-        """Wait for response data with timeout."""
-        import asyncio
+    async def wait_for_response(
+        self, key: str, timeout: float = RESPONSE_TIMEOUT
+    ) -> Any:
+        """Wait for the reply stored under `key`.
+
+        Raises a translated HomeAssistantError when not connected, when the
+        player reports that the request failed, or when no reply arrives
+        within `timeout` seconds.
+        """
+        if not self.is_connected:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="player_not_connected"
+            )
         # Clear any stale data for this key before waiting for fresh response
         self._response_data.pop(key, None)
-        start_time = asyncio.get_event_loop().time()
-        while asyncio.get_event_loop().time() - start_time < timeout:
-            if key in self._response_data:
-                return self.get_response_data(key)
-            await asyncio.sleep(0.1)
-        return None
+        self._pending_waits[key] += 1
+        try:
+            loop = self.hass.loop
+            deadline = loop.time() + timeout
+            while loop.time() < deadline:
+                if key in self._response_data:
+                    value = self.get_response_data(key)
+                    if isinstance(value, _ResponseFailure):
+                        raise HomeAssistantError(
+                            translation_domain=DOMAIN,
+                            translation_key=value.translation_key,
+                            translation_placeholders=value.placeholders,
+                        )
+                    return value
+                await asyncio.sleep(0.1)
+        finally:
+            self._pending_waits[key] -= 1
+            if self._pending_waits[key] <= 0:
+                del self._pending_waits[key]
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="player_busy" if self.player_busy else "player_no_response",
+        )
+
+    @staticmethod
+    def encode_event(event_name: str, payload: Any) -> str:
+        """Return the Socket.IO EVENT frame, as compact JSON."""
+        return f'2["{event_name}",{json.dumps(payload, separators=(",", ":"))}]'
 
     async def send_event(self, event_name: str, payload: Any) -> None:
-        """Send an event to the WebSocket."""
+        """Send an event to the WebSocket.
+
+        Raises a translated HomeAssistantError for a frame larger than the
+        player accepts, which it would drop.
+        """
         if not self._ws or self._ws.closed:
             _LOGGER.error("WebSocket not connected")
             return
-            
+
+        message = self.encode_event(event_name, payload)
+        if len(message.encode()) > WS_MAX_REQUEST_BYTES:
+            _LOGGER.error(
+                "Not sending %s: %s bytes is more than the player accepts (%s)",
+                event_name,
+                len(message.encode()),
+                WS_MAX_REQUEST_BYTES,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="request_too_large"
+            )
         try:
-            # Format as Socket.IO EVENT message
-            message = f'2["{event_name}",{json.dumps(payload)}]'
             await self._ws.send_str(message)
             _LOGGER.debug("Sent event: %s", event_name)
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - sending is best-effort, errors are logged
             _LOGGER.error("Error sending event %s: %s", event_name, err)
 
     async def send_action(self, action: str) -> None:

@@ -55,6 +55,11 @@ class PianobarStationSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity
         }
 
     @property
+    def available(self) -> bool:
+        """Unavailable once a dropped connection outlasts the grace period."""
+        return super().available and self.coordinator.player_available
+
+    @property
     def options(self) -> list[str]:
         """Return list of station names."""
         stations = self.coordinator.data.get("stations", [])
@@ -99,6 +104,11 @@ class PianobarAccountSelect(CoordinatorEntity[PianobarCoordinator], SelectEntity
             "manufacturer": "Pandora",
             "model": "Pianobar",
         }
+
+    @property
+    def available(self) -> bool:
+        """Unavailable once a dropped connection outlasts the grace period."""
+        return super().available and self.coordinator.player_available
 
     @property
     def options(self) -> list[str]:

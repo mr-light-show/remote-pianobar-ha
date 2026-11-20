@@ -336,3 +336,25 @@ async def test_async_setup_entry_multi_account_adds_account_select(
     assert isinstance(entities[0], PianobarStationSelect)
     assert isinstance(entities[1], PianobarAccountSelect)
 
+
+
+@pytest.mark.parametrize("entity_cls", [PianobarStationSelect, PianobarAccountSelect])
+@pytest.mark.parametrize(
+    ("last_update_success", "player_available", "expected"),
+    [(True, True, True), (True, False, False), (False, True, False)],
+)
+def test_select_available_follows_player(
+    mock_coordinator_for_select,
+    mock_config_entry_for_select,
+    entity_cls,
+    last_update_success: bool,
+    player_available: bool,
+    expected: bool,
+) -> None:
+    """Selects go unavailable with the player after the reconnect grace period."""
+    mock_coordinator_for_select.last_update_success = last_update_success
+    mock_coordinator_for_select.player_available = player_available
+
+    entity = entity_cls(mock_coordinator_for_select, mock_config_entry_for_select)
+
+    assert entity.available is expected

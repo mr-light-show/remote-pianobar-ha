@@ -57,6 +57,24 @@
   "exceptions": {
     "no_instance": {
       "message": "No pianobar instance found"
+    },
+    "player_no_response": {
+      "message": "The player did not answer in time. Try again in a moment."
+    },
+    "player_not_connected": {
+      "message": "Home Assistant is not connected to the player."
+    },
+    "player_request_failed": {
+      "message": "The player could not complete the request: {message}"
+    },
+    "player_busy": {
+      "message": "The player is busy. Try again in a moment."
+    },
+    "request_too_large": {
+      "message": "The request is too large and was ignored."
+    },
+    "quick_mix_too_large": {
+      "message": "Too many stations for QuickMix ({count}). Select fewer stations."
     }
   },
   "services": {
@@ -267,6 +285,12 @@
           "description": "Account identifier as configured in pianobar config (e.g. \"work\", \"default\")"
         }
       }
+    }
+  },
+  "issues": {
+    "player_version_mismatch": {
+      "title": "remote-pianobar version mismatch",
+      "description": "remote-pianobar {player_version} is connected, but this integration expects {expected_major}.x. Update both to the same major version."
     }
   }
 }

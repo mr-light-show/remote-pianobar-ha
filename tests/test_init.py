@@ -9,8 +9,8 @@ import custom_components.pianobar as pianobar_integration
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 
 from custom_components.pianobar.const import (
     DOMAIN,
@@ -51,7 +51,10 @@ async def test_async_setup_entry(
     
     with patch(
         "custom_components.pianobar.PianobarCoordinator"
-    ) as mock_coordinator_class:
+    ) as mock_coordinator_class, patch(
+        "custom_components.pianobar.async_integration_version",
+        AsyncMock(return_value="3.1.4"),
+    ):
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
         mock_coordinator.data = {"playing": False}
@@ -61,6 +64,11 @@ async def test_async_setup_entry(
 
         assert DOMAIN in hass.data
         assert mock_config_entry.entry_id in hass.data[DOMAIN]
+        # The coordinator knows its entry and the manifest version before
+        # connecting, because the connect-time `process` is checked
+        _, kwargs = mock_coordinator_class.call_args
+        assert kwargs["entry_id"] == mock_config_entry.entry_id
+        assert kwargs["integration_version"] == "3.1.4"
         
         # Check services are registered
         assert hass.services.has_service(DOMAIN, SERVICE_LOVE_SONG)
@@ -110,6 +118,39 @@ async def test_async_unload_entry(
         
         mock_coordinator.async_disconnect.assert_called_once()
         assert mock_config_entry.entry_id not in hass.data[DOMAIN]
+
+
+async def test_unload_deletes_version_issue(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Unloading (or removing) the entry deletes its version-mismatch issue."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.async_disconnect = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        issue_id = f"player_version_mismatch_{mock_config_entry.entry_id}"
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="player_version_mismatch",
+        )
+
+        assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_service_love_song(
@@ -536,6 +577,10 @@ async def test_service_get_station_info(
         
         mock_coordinator.send_event.assert_called_once()
         assert "artistSeeds" in response
+        # Waits for the reply about the station it asked for
+        mock_coordinator.wait_for_response.assert_awaited_once_with(
+            "station_info:123"
+        )
 
 
 async def test_service_delete_seed(
@@ -1047,3 +1092,86 @@ async def test_async_reload_entry(
         await pianobar_integration.async_reload_entry(hass, mock_config_entry)
         mock_reload.assert_awaited_once_with(mock_config_entry.entry_id)
 
+
+
+@pytest.mark.parametrize(
+    "service",
+    [SERVICE_GET_STATION_INFO, SERVICE_GET_GENRES],
+)
+async def test_service_response_propagates_error(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    service: str,
+) -> None:
+    """A failed reply wait surfaces as a translated error, not an empty result."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.wait_for_response = AsyncMock(
+            side_effect=HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="player_no_response"
+            )
+        )
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        with pytest.raises(HomeAssistantError) as err:
+            await hass.services.async_call(
+                DOMAIN,
+                service,
+                {"station_id": "123"} if service == SERVICE_GET_STATION_INFO else {},
+                blocking=True,
+                return_response=True,
+            )
+
+        assert err.value.translation_key == "player_no_response"
+
+
+@pytest.mark.parametrize(
+    ("count", "allowed"), [(170, True), (185, True), (186, False), (250, False)]
+)
+async def test_service_set_quick_mix_size_limit(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    count: int,
+    allowed: bool,
+) -> None:
+    """QuickMix lists that do not fit in one player request are refused up front."""
+    from custom_components.pianobar.coordinator import PianobarCoordinator
+
+    mock_config_entry.add_to_hass(hass)
+    ids = [str(10**18 + i) for i in range(count)]  # 19-digit Pandora station ids
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.encode_event = PianobarCoordinator.encode_event
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        call = hass.services.async_call(
+            DOMAIN, SERVICE_SET_QUICK_MIX, {"station_ids": ids}, blocking=True
+        )
+        if allowed:
+            await call
+            mock_coordinator.send_event.assert_called_once_with(
+                "station.setQuickMix", ids
+            )
+        else:
+            with pytest.raises(ServiceValidationError) as err:
+                await call
+            assert err.value.translation_key == "quick_mix_too_large"
+            assert err.value.translation_placeholders == {"count": str(count)}
+            mock_coordinator.send_event.assert_not_called()

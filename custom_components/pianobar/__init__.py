@@ -4,13 +4,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
+from homeassistant.helpers import issue_registry as ir
 
 from .const import (
     DOMAIN,
@@ -22,6 +23,8 @@ from .const import (
     SERVICE_DELETE_FEEDBACK,
     SERVICE_DELETE_SEED,
     SERVICE_DELETE_STATION,
+    SERVICE_DISCONNECT,
+    SERVICE_DISCONNECT_PANDORA,
     SERVICE_EXPLAIN_SONG,
     SERVICE_GET_GENRES,
     SERVICE_GET_STATION_INFO,
@@ -29,8 +32,6 @@ from .const import (
     SERVICE_GET_UPCOMING,
     SERVICE_LOVE_SONG,
     SERVICE_RECONNECT,
-    SERVICE_DISCONNECT,
-    SERVICE_DISCONNECT_PANDORA,
     SERVICE_RENAME_STATION,
     SERVICE_RESET_VOLUME,
     SERVICE_SEARCH,
@@ -39,8 +40,10 @@ from .const import (
     SERVICE_SWITCH_ACCOUNT,
     SERVICE_TIRED_OF_SONG,
     SERVICE_TOGGLE_PLAYBACK,
+    WS_MAX_REQUEST_BYTES,
 )
-from .coordinator import PianobarCoordinator
+from .coordinator import PianobarCoordinator, station_info_key
+from .version_check import async_integration_version, version_issue_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,7 +75,7 @@ def _get_coordinator_from_call(
                 return coordinator
     
     # Fallback: use first available instance
-    if DOMAIN in hass.data and hass.data[DOMAIN]:
+    if hass.data.get(DOMAIN):
         entry_ids = list(hass.data[DOMAIN].keys())
         if entry_ids:
             return hass.data[DOMAIN][entry_ids[0]]
@@ -145,7 +148,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             try:
                 await coordinator.async_connect()
                 _LOGGER.info("Reconnected to Pianobar")
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - any failure must be logged, not crash the service
                 _LOGGER.error("Failed to reconnect: %s", err)
         else:
             _LOGGER.info("Already connected to Pianobar")
@@ -178,6 +181,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         """Handle set_quick_mix service call."""
         coordinator = _get_coordinator_from_call(hass, call)
         station_ids = call.data.get("station_ids", [])
+        # setQuickMix replaces the whole set, so it cannot be split up
+        frame = coordinator.encode_event("station.setQuickMix", station_ids)
+        if len(frame.encode()) > WS_MAX_REQUEST_BYTES:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="quick_mix_too_large",
+                translation_placeholders={"count": str(len(station_ids))},
+            )
         await coordinator.send_event("station.setQuickMix", station_ids)
 
     async def async_add_seed(call: ServiceCall) -> None:
@@ -200,8 +211,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             "station.getInfo",
             {"stationId": station_id}
         )
-        station_info = await coordinator.wait_for_response("station_info")
-        return station_info or {}
+        station_info = await coordinator.wait_for_response(
+            station_info_key(str(station_id))
+        )
+        return station_info
 
     async def async_delete_seed(call: ServiceCall) -> None:
         """Handle delete_seed service call."""
@@ -236,7 +249,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {"stationId": station_id}
         )
         modes = await coordinator.wait_for_response("station_modes")
-        return {"modes": modes or []}
+        return {"modes": modes}
 
     async def async_set_station_mode(call: ServiceCall) -> None:
         """Handle set_station_mode service call."""
@@ -269,7 +282,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {"query": query}
         )
         search_results = await coordinator.wait_for_response("search_results")
-        return search_results or {"categories": []}
+        return search_results
 
     async def async_get_genres(call: ServiceCall) -> dict[str, Any]:
         """Handle get_genres service call."""
@@ -280,7 +293,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {}
         )
         genres = await coordinator.wait_for_response("genres")
-        return genres or {"categories": []}
+        return genres
 
     async def async_create_station_from_music_id(call: ServiceCall) -> None:
         """Handle create_station_from_music_id service call."""
@@ -571,7 +584,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
 
-    coordinator = PianobarCoordinator(hass, host, port)
+    coordinator = PianobarCoordinator(
+        hass,
+        host,
+        port,
+        entry_id=entry.entry_id,
+        integration_version=await async_integration_version(hass),
+    )
 
     try:
         await coordinator.async_connect()
@@ -597,6 +616,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         coordinator: PianobarCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_disconnect()
+        ir.async_delete_issue(hass, DOMAIN, version_issue_id(entry.entry_id))
 
     return unload_ok
 
