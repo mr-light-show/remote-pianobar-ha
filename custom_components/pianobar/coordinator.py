@@ -4,22 +4,34 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
     INITIAL_PROCESS_TIMEOUT,
+    OPERATION_RESPONSE_KEYS,
+    RESPONSE_TIMEOUT,
     WS_CONNECT_TIMEOUT,
     WS_MAX_RECONNECT_DELAY,
     WS_RECONNECT_DELAY,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class _ResponseFailure:
+    """Stored in place of a reply to make the waiting service fail."""
+
+    translation_key: str
+    placeholders: dict[str, str] = field(default_factory=dict)
 
 
 class PianobarCoordinator(DataUpdateCoordinator):
@@ -56,6 +68,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
         
         # Response data storage (for service calls that return data)
         self._response_data: dict[str, Any] = {}
+        # Response keys a service is currently waiting for
+        self._pending_waits: set[str] = set()
 
     @property
     def is_connected(self) -> bool:
@@ -452,23 +466,52 @@ class PianobarCoordinator(DataUpdateCoordinator):
         elif operation == "query.upcoming":
             self._response_data["upcoming"] = []  # Empty list indicates no upcoming songs
             _LOGGER.debug("Backend error for %s: %s", operation, message)
-        # Add other operations as needed
+        elif OPERATION_RESPONSE_KEYS.get(operation) in self._pending_waits:
+            # Fail the waiting service now instead of after the timeout
+            self._response_data[OPERATION_RESPONSE_KEYS[operation]] = _ResponseFailure(
+                "player_request_failed", {"message": message}
+            )
+            _LOGGER.debug("Backend error for %s: %s", operation, message)
 
     def get_response_data(self, key: str) -> Any:
         """Get and clear response data for a given key."""
         return self._response_data.pop(key, None)
 
-    async def wait_for_response(self, key: str, timeout: float = 5.0) -> Any:
-        """Wait for response data with timeout."""
-        import asyncio
+    async def wait_for_response(
+        self, key: str, timeout: float = RESPONSE_TIMEOUT
+    ) -> Any:
+        """Wait for the reply stored under `key`.
+
+        Raises a translated HomeAssistantError when not connected, when the
+        player reports that the request failed, or when no reply arrives
+        within `timeout` seconds.
+        """
+        if not self.is_connected:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="player_not_connected"
+            )
         # Clear any stale data for this key before waiting for fresh response
         self._response_data.pop(key, None)
-        start_time = asyncio.get_event_loop().time()
-        while asyncio.get_event_loop().time() - start_time < timeout:
-            if key in self._response_data:
-                return self.get_response_data(key)
-            await asyncio.sleep(0.1)
-        return None
+        self._pending_waits.add(key)
+        try:
+            loop = self.hass.loop
+            deadline = loop.time() + timeout
+            while loop.time() < deadline:
+                if key in self._response_data:
+                    value = self.get_response_data(key)
+                    if isinstance(value, _ResponseFailure):
+                        raise HomeAssistantError(
+                            translation_domain=DOMAIN,
+                            translation_key=value.translation_key,
+                            translation_placeholders=value.placeholders,
+                        )
+                    return value
+                await asyncio.sleep(0.1)
+        finally:
+            self._pending_waits.discard(key)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="player_no_response"
+        )
 
     async def send_event(self, event_name: str, payload: Any) -> None:
         """Send an event to the WebSocket."""

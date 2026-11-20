@@ -9,7 +9,7 @@ import custom_components.pianobar as pianobar_integration
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.pianobar.const import (
@@ -1047,3 +1047,43 @@ async def test_async_reload_entry(
         await pianobar_integration.async_reload_entry(hass, mock_config_entry)
         mock_reload.assert_awaited_once_with(mock_config_entry.entry_id)
 
+
+
+@pytest.mark.parametrize(
+    "service",
+    [SERVICE_GET_STATION_INFO, SERVICE_GET_GENRES],
+)
+async def test_service_response_propagates_error(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    service: str,
+) -> None:
+    """A failed reply wait surfaces as a translated error, not an empty result."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.wait_for_response = AsyncMock(
+            side_effect=HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="player_no_response"
+            )
+        )
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        with pytest.raises(HomeAssistantError) as err:
+            await hass.services.async_call(
+                DOMAIN,
+                service,
+                {"station_id": "123"} if service == SERVICE_GET_STATION_INFO else {},
+                blocking=True,
+                return_response=True,
+            )
+
+        assert err.value.translation_key == "player_no_response"
