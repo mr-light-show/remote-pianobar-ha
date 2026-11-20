@@ -608,3 +608,16 @@ async def test_play_station_not_found_after_refresh(
     await player.async_play_media(MEDIA_TYPE_STATION, "Missing")
 
     mock_coordinator.send_event.assert_awaited_once_with("query.stations", None)
+
+
+async def test_media_player_exposes_integration_version(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """The card compares its own version with integration_version."""
+    mock_coordinator.integration_version = "3.0.0"
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+
+    assert player.extra_state_attributes["integration_version"] == "3.0.0"

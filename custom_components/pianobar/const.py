@@ -44,6 +44,10 @@ OPERATION_RESPONSE_KEYS: dict[str, str] = {
 # of the notice are reported as busy too.
 BUSY_OPERATION = "command"
 BUSY_WINDOW = 30.0
+# Player `error` operation for a request it dropped for being longer than it
+# accepts (sent to the requester only). It does not say which request, so it
+# fails every reply HA is waiting for.
+REQUEST_TOO_LARGE_OPERATION = "request"
 
 # Services
 SERVICE_LOVE_SONG = "love_song"

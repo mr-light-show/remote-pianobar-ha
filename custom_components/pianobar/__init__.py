@@ -11,6 +11,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 
 from .const import (
     DOMAIN,
@@ -41,7 +42,8 @@ from .const import (
     SERVICE_TOGGLE_PLAYBACK,
     WS_MAX_REQUEST_BYTES,
 )
-from .coordinator import PianobarCoordinator
+from .coordinator import PianobarCoordinator, station_info_key
+from .version_check import async_integration_version, version_issue_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -209,7 +211,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             "station.getInfo",
             {"stationId": station_id}
         )
-        station_info = await coordinator.wait_for_response("station_info")
+        station_info = await coordinator.wait_for_response(
+            station_info_key(str(station_id))
+        )
         return station_info
 
     async def async_delete_seed(call: ServiceCall) -> None:
@@ -580,7 +584,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
 
-    coordinator = PianobarCoordinator(hass, host, port)
+    coordinator = PianobarCoordinator(
+        hass,
+        host,
+        port,
+        entry_id=entry.entry_id,
+        integration_version=await async_integration_version(hass),
+    )
 
     try:
         await coordinator.async_connect()
@@ -606,6 +616,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         coordinator: PianobarCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_disconnect()
+        ir.async_delete_issue(hass, DOMAIN, version_issue_id(entry.entry_id))
 
     return unload_ok
 

@@ -24,7 +24,7 @@ from custom_components.pianobar.const import (
     WS_HEARTBEAT,
     WS_MAX_REQUEST_BYTES,
 )
-from custom_components.pianobar.coordinator import PianobarCoordinator
+from custom_components.pianobar.coordinator import PianobarCoordinator, station_info_key
 
 
 async def test_coordinator_connect_success(hass: HomeAssistant) -> None:
@@ -392,6 +392,123 @@ async def test_handle_station_info_event(hass: HomeAssistant) -> None:
     assert coordinator._response_data["station_info"]["artistSeeds"][0]["name"] == "Test Artist"
 
 
+def _station_info_frame(station_id: str | None, seed: str) -> str:
+    payload: dict = {
+        "artistSeeds": [{"seedId": seed, "name": seed}],
+        "songSeeds": [],
+        "stationSeeds": [],
+        "feedback": [],
+    }
+    if station_id is not None:
+        payload["stationId"] = station_id
+    return "2" + json.dumps(["stationInfo", payload])
+
+
+async def test_station_info_ignores_other_station_reply(hass: HomeAssistant) -> None:
+    """A wait for station A is not satisfied by HA's own reply for station B."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    task = asyncio.create_task(
+        coordinator.wait_for_response(station_info_key("A"), timeout=5)
+    )
+    await asyncio.sleep(0)
+    await coordinator._handle_message(_station_info_frame("B", "seed-b"))
+    await asyncio.sleep(0.2)
+    assert not task.done()
+
+    await coordinator._handle_message(_station_info_frame("A", "seed-a"))
+    info = await asyncio.wait_for(task, timeout=1)
+    assert info["artistSeeds"][0]["seedId"] == "seed-a"
+    # The unawaited reply for B is not kept around
+    assert coordinator._response_data == {}
+
+
+async def test_overlapping_station_info_waits_get_their_own_reply(
+    hass: HomeAssistant,
+) -> None:
+    """Two overlapping calls each get the reply for the station they asked about."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    a = asyncio.create_task(coordinator.wait_for_response(station_info_key("A"), timeout=5))
+    b = asyncio.create_task(coordinator.wait_for_response(station_info_key("B"), timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(_station_info_frame("B", "seed-b"))
+    await coordinator._handle_message(_station_info_frame("A", "seed-a"))
+
+    assert (await asyncio.wait_for(a, 1))["artistSeeds"][0]["seedId"] == "seed-a"
+    assert (await asyncio.wait_for(b, 1))["artistSeeds"][0]["seedId"] == "seed-b"
+
+
+async def test_same_station_info_requested_twice(hass: HomeAssistant) -> None:
+    """Two overlapping calls for the same station both get a reply."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    first = asyncio.create_task(
+        coordinator.wait_for_response(station_info_key("A"), timeout=5)
+    )
+    second = asyncio.create_task(
+        coordinator.wait_for_response(station_info_key("A"), timeout=5)
+    )
+    await asyncio.sleep(0)
+    await coordinator._handle_message(_station_info_frame("A", "one"))
+    await asyncio.sleep(0.2)
+    await coordinator._handle_message(_station_info_frame("A", "two"))
+
+    seeds = {
+        (await asyncio.wait_for(task, 1))["artistSeeds"][0]["seedId"]
+        for task in (first, second)
+    }
+    assert seeds == {"one", "two"}
+    assert not coordinator._pending_waits
+
+
+async def test_station_info_accepts_reply_without_station_id(
+    hass: HomeAssistant,
+) -> None:
+    """An older player's reply has no stationId: it answers the oldest wait."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    a = asyncio.create_task(coordinator.wait_for_response(station_info_key("A"), timeout=5))
+    await asyncio.sleep(0)
+    b = asyncio.create_task(coordinator.wait_for_response(station_info_key("B"), timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(_station_info_frame(None, "first"))
+    await coordinator._handle_message(_station_info_frame("", "second"))
+
+    assert (await asyncio.wait_for(a, 1))["artistSeeds"][0]["seedId"] == "first"
+    assert (await asyncio.wait_for(b, 1))["artistSeeds"][0]["seedId"] == "second"
+
+
+async def test_station_info_error_fails_oldest_wait(hass: HomeAssistant) -> None:
+    """A stationInfo error names no station: it fails the oldest wait only.
+
+    The player runs one client's requests in order and answers each with a
+    reply or an error, to that client only.
+    """
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    a = asyncio.create_task(coordinator.wait_for_response(station_info_key("A"), timeout=5))
+    await asyncio.sleep(0)
+    b = asyncio.create_task(coordinator.wait_for_response(station_info_key("B"), timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(
+        '2["error",{"operation":"station.getStationInfo","message":"Boom"}]'
+    )
+    with pytest.raises(HomeAssistantError) as err:
+        await asyncio.wait_for(a, timeout=1)
+    assert err.value.translation_key == "player_request_failed"
+
+    await asyncio.sleep(0.2)
+    assert not b.done()
+    await coordinator._handle_message(_station_info_frame("B", "seed-b"))
+    assert (await asyncio.wait_for(b, 1))["artistSeeds"][0]["seedId"] == "seed-b"
+
+
 async def test_handle_station_modes_event(hass: HomeAssistant) -> None:
     """Test handling stationModes event."""
     coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
@@ -521,6 +638,49 @@ async def test_station_info_too_large_fails_fast(hass: HomeAssistant) -> None:
     }
 
 
+REQUEST_TOO_LARGE_FRAME = (
+    '2["error",{"operation":"request",'
+    '"message":"The request is too large and was ignored."}]'
+)
+
+
+async def test_request_too_large_error_fails_pending_waits(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The player dropped one of our requests for size: fail every wait at once."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    info = asyncio.create_task(coordinator.wait_for_response("station_info", timeout=5))
+    genres = asyncio.create_task(coordinator.wait_for_response("genres", timeout=5))
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await coordinator._handle_message(REQUEST_TOO_LARGE_FRAME)
+
+    for task in (info, genres):
+        with pytest.raises(HomeAssistantError) as err:
+            await asyncio.wait_for(task, timeout=1)
+        assert err.value.translation_domain == DOMAIN
+        assert err.value.translation_key == "request_too_large"
+    assert "too large" in caplog.text
+    # Not a busy episode
+    assert coordinator.player_busy is False
+
+
+async def test_request_too_large_without_waiter_leaves_no_reply(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With nothing waiting, the error is only logged and cannot fail a later wait."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    with caplog.at_level(logging.WARNING):
+        await coordinator._handle_message(REQUEST_TOO_LARGE_FRAME)
+
+    assert coordinator._response_data == {}
+    assert "too large" in caplog.text
+
+
 BUSY_FRAME = (
     '2["error",{"operation":"command",'
     '"message":"The player is busy. Try again in a moment."}]'
@@ -643,6 +803,42 @@ async def test_unrelated_operation_error_without_waiter_is_ignored(
     await coordinator._handle_message('2["error",{"operation":"music.search","message":"x"}]')
 
     assert "search_results" not in coordinator._response_data
+
+
+@pytest.mark.parametrize(
+    ("frame", "key"),
+    [
+        ('2["stationModes",{"modes":[]}]', "station_modes"),
+        ('2["searchResults",{"artists":[]}]', "search_results"),
+        ('2["genres",{"categories":[]}]', "genres"),
+    ],
+)
+async def test_reply_without_waiter_does_not_satisfy_later_wait(
+    hass: HomeAssistant, frame: str, key: str
+) -> None:
+    """A reply that arrived while nothing waited is not taken by a later wait."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(frame)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await coordinator.wait_for_response(key, timeout=0.1)
+
+    assert err.value.translation_key == "player_no_response"
+
+
+async def test_station_info_error_without_waiter_is_ignored(
+    hass: HomeAssistant,
+) -> None:
+    """A stationInfo error with no wait pending leaves nothing behind."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    await coordinator._handle_message(
+        '2["error",{"operation":"station.getStationInfo","message":"x"}]'
+    )
+
+    assert coordinator._response_data == {}
 
 
 async def test_not_implemented_station_change_does_not_remove_station(

@@ -72,6 +72,28 @@ If `pytest` fails with `No module named 'homeassistant'`, recreate the venv with
 | `test_handle_message_parse_event` | Message parsing |
 | `test_handle_message_invalid_format` | Invalid message handling |
 | `test_handle_message_non_event` | Non-event message filtering |
+| `test_request_too_large_*` | Player's `request` too-large error fails pending waits |
+| `test_station_info_too_large_fails_fast` | `stationInfo` too-large error fails its wait |
+| `test_station_info_*`, `test_overlapping_station_info_*` | `stationInfo` replies matched by `stationId` |
+
+### 2b. Version Check Tests (`test_version_check.py`)
+
+**Coverage**: Player major-version parsing and the `player_version_mismatch` Repairs issue
+
+| Test | Description |
+|------|-------------|
+| `test_player_major_parses_release_and_dev_tags` | `"3.0.0-dev.4"` → 3, `"dev"` → None, no field → missing |
+| `test_mismatch_creates_repairs_issue` | Mismatch raises one warning issue, logged once per connection |
+| `test_missing_version_field_warns_as_older_player` | No `version` warns as `< 3.0` |
+| `test_dev_or_unparseable_version_does_not_warn` | `"dev"` is not compared |
+| `test_matching_major_clears_issue` | Matching player deletes the issue |
+
+### 2c. Translation Tests (`test_translations.py`)
+
+| Test | Description |
+|------|-------------|
+| `test_en_json_has_only_documented_top_level_keys` | hassfest-safe top-level sections |
+| `test_every_translation_key_used_in_code_exists` | Exception and issue keys used in code exist in `en.json` |
 
 ### 3. Media Player Tests (`test_media_player.py`)
 
@@ -90,6 +112,7 @@ If `pytest` fails with `No module named 'homeassistant'`, recreate the venv with
 | `test_media_player_supported_features` | Feature flags |
 | `test_db_to_volume_level_conversions` | dB conversion math |
 | `test_volume_level_to_percent` | Percentage conversion |
+| `test_media_player_exposes_integration_version` | `integration_version` attribute for the card |
 
 ### 4. Browse Media Tests (`test_browse_media.py`)
 
@@ -111,6 +134,7 @@ If `pytest` fails with `No module named 'homeassistant'`, recreate the venv with
 | `test_async_setup_entry` | Integration setup |
 | `test_async_setup_entry_connection_error` | Setup failure handling |
 | `test_async_unload_entry` | Clean unload |
+| `test_unload_deletes_version_issue` | Unload deletes the version-mismatch issue |
 | `test_service_love_song` | Love song service |
 | `test_service_ban_song` | Ban song service |
 | `test_service_create_station` | Create station service |

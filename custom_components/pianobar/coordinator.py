@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -11,6 +12,7 @@ from typing import Any
 import aiohttp
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -22,6 +24,7 @@ from .const import (
     INITIAL_PROCESS_TIMEOUT,
     OPERATION_RESPONSE_KEYS,
     RECONNECT_GRACE_PERIOD,
+    REQUEST_TOO_LARGE_OPERATION,
     RESPONSE_TIMEOUT,
     STATIONS_RETRY_DELAYS,
     WS_CONNECT_TIMEOUT,
@@ -30,8 +33,29 @@ from .const import (
     WS_MAX_REQUEST_BYTES,
     WS_RECONNECT_DELAY,
 )
+from .version_check import (
+    ISSUE_TRANSLATION_KEY,
+    MISSING,
+    OLDER_PLAYER_VERSION,
+    parse_major,
+    player_major,
+    version_issue_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+STATION_INFO_KEY = "station_info"
+# Player version not yet checked on this connection
+_UNCHECKED = object()
+
+
+def station_info_key(station_id: str) -> str:
+    """Return the response key for the `stationInfo` reply about one station."""
+    return f"{STATION_INFO_KEY}:{station_id}"
+
+
+def _is_station_info_key(key: str) -> bool:
+    return key == STATION_INFO_KEY or key.startswith(f"{STATION_INFO_KEY}:")
 
 
 @dataclass
@@ -45,8 +69,20 @@ class _ResponseFailure:
 class PianobarCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Pianobar data from WebSocket."""
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
-        """Initialize."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        host: str,
+        port: int,
+        *,
+        entry_id: str | None = None,
+        integration_version: str | None = None,
+    ) -> None:
+        """Initialize.
+
+        With `entry_id` and `integration_version` (from manifest.json), a
+        player of another major version raises a Repairs issue.
+        """
         super().__init__(
             hass,
             _LOGGER,
@@ -61,6 +97,10 @@ class PianobarCoordinator(DataUpdateCoordinator):
         self._reconnect_delay = WS_RECONNECT_DELAY
         self._is_closing = False
         self._initial_process_event = asyncio.Event()
+        self.entry_id = entry_id
+        self.integration_version = integration_version
+        # Player version last checked on this connection
+        self._checked_player_version: object = _UNCHECKED
 
         # State data
         self.data: dict[str, Any] = {
@@ -76,8 +116,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
         
         # Response data storage (for service calls that return data)
         self._response_data: dict[str, Any] = {}
-        # Response keys a service is currently waiting for
-        self._pending_waits: set[str] = set()
+        # Response keys services are currently waiting for, oldest first, with
+        # the number of waits for each
+        self._pending_waits: Counter[str] = Counter()
         # Busy episode: loop time of its first notice, and the timer ending it
         self._busy_since: float | None = None
         self._busy_unsub: CALLBACK_TYPE | None = None
@@ -145,6 +186,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # Allow reuse of this coordinator after partial teardown (e.g. failed setup retry).
         self._is_closing = False
         self._initial_process_event.clear()
+        self._reset_version_check()
         self._cancel_stations_retry()
         self._stations_received.clear()
         self._stations_retry_attempt = 0
@@ -416,6 +458,55 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # The first `process` on a new connection ends a reconnect grace period
         self._end_grace()
         self._initial_process_event.set()
+        # Last: a failed check must not hold up the connection
+        self._check_player_version(payload.get("version"))
+
+    def _reset_version_check(self) -> None:
+        """Check (and warn about) the player version again on a new connection."""
+        self._checked_player_version = _UNCHECKED
+
+    def _check_player_version(self, version: Any) -> None:
+        """Raise or clear the Repairs issue for a player major-version mismatch.
+
+        Checked on every `process`, because a reconnect may reach another
+        player; logged once per connection. Warns only.
+        """
+        expected = parse_major(self.integration_version)
+        if self.entry_id is None or expected is None:
+            return
+        if version == self._checked_player_version:
+            return
+        self._checked_player_version = version
+        issue_id = version_issue_id(self.entry_id)
+        major = player_major(version)
+        if major is None:
+            _LOGGER.debug("Not checking player version %r: not a release version", version)
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        if major == expected:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        shown = OLDER_PLAYER_VERSION if major == MISSING else str(version)
+        _LOGGER.warning(
+            "remote-pianobar %s at %s:%s does not match this integration "
+            "(expects %s.x); update both to the same major version",
+            shown,
+            self.host,
+            self.port,
+            expected,
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_TRANSLATION_KEY,
+            translation_placeholders={
+                "player_version": shown,
+                "expected_major": str(expected),
+            },
+        )
 
     def _handle_start_event(self, payload: dict[str, Any]) -> None:
         """Handle start event (new song started)."""
@@ -546,9 +637,36 @@ class PianobarCoordinator(DataUpdateCoordinator):
         """Handle query.upcoming.result event (upcoming songs)."""
         self._set_response("upcoming", payload)
 
+    def _oldest_station_info_wait(self) -> str | None:
+        """Return the key of the oldest stationInfo wait not yet answered."""
+        return next(
+            (
+                k
+                for k in self._pending_waits
+                if _is_station_info_key(k) and k not in self._response_data
+            ),
+            None,
+        )
+
     def _handle_station_info_event(self, payload: dict[str, Any]) -> None:
-        """Handle stationInfo event (station seeds and feedback)."""
-        self._set_response("station_info", payload)
+        """Handle stationInfo event (station seeds and feedback).
+
+        The reply names its station, so two overlapping get_station_info calls
+        each get their own. A reply without one (older player) answers the
+        oldest wait: the player answers one client's requests in order.
+        """
+        station_id = str(payload.get("stationId") or "")
+        if not station_id:
+            self._set_response(
+                self._oldest_station_info_wait() or STATION_INFO_KEY, payload
+            )
+            return
+        key = station_info_key(station_id)
+        if key in self._pending_waits:
+            self._set_response(key, payload)
+        else:
+            _LOGGER.debug("Ignoring stationInfo for %s: nothing waits for it", station_id)
+            self._clear_busy()
 
     def _handle_station_modes_event(self, payload: dict[str, Any]) -> None:
         """Handle stationModes event (station playback modes)."""
@@ -615,6 +733,17 @@ class PianobarCoordinator(DataUpdateCoordinator):
         if operation == BUSY_OPERATION:
             self._handle_busy()
             return
+        if operation == REQUEST_TOO_LARGE_OPERATION:
+            # send_event refuses oversize frames first, so this is unexpected
+            _LOGGER.warning(
+                "Player %s:%s dropped a request as too large: %s",
+                self.host,
+                self.port,
+                message,
+            )
+            for key in self._pending_waits:
+                self._response_data[key] = _ResponseFailure("request_too_large")
+            return
         
         # Play/reconnect failed: revert playing state so UI shows Play again
         if operation in ("playback.play", "app.pandora-reconnect"):
@@ -654,12 +783,22 @@ class PianobarCoordinator(DataUpdateCoordinator):
         elif operation == "query.upcoming":
             self._response_data["upcoming"] = []  # Empty list indicates no upcoming songs
             _LOGGER.debug("Backend error for %s: %s", operation, message)
-        elif OPERATION_RESPONSE_KEYS.get(operation) in self._pending_waits:
+        elif (wait_key := self._operation_wait_key(operation)) is not None:
             # Fail the waiting service now instead of after the timeout
-            self._response_data[OPERATION_RESPONSE_KEYS[operation]] = _ResponseFailure(
+            self._response_data[wait_key] = _ResponseFailure(
                 "player_request_failed", {"message": message}
             )
             _LOGGER.debug("Backend error for %s: %s", operation, message)
+
+    def _operation_wait_key(self, operation: str) -> str | None:
+        """Return the pending wait a reply-style operation's error fails.
+
+        A stationInfo error names no station: it belongs to the oldest wait.
+        """
+        key = OPERATION_RESPONSE_KEYS.get(operation)
+        if key == STATION_INFO_KEY:
+            return self._oldest_station_info_wait()
+        return key if key in self._pending_waits else None
 
     def get_response_data(self, key: str) -> Any:
         """Get and clear response data for a given key."""
@@ -680,7 +819,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             )
         # Clear any stale data for this key before waiting for fresh response
         self._response_data.pop(key, None)
-        self._pending_waits.add(key)
+        self._pending_waits[key] += 1
         try:
             loop = self.hass.loop
             deadline = loop.time() + timeout
@@ -696,7 +835,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     return value
                 await asyncio.sleep(0.1)
         finally:
-            self._pending_waits.discard(key)
+            self._pending_waits[key] -= 1
+            if self._pending_waits[key] <= 0:
+                del self._pending_waits[key]
         raise HomeAssistantError(
             translation_domain=DOMAIN,
             translation_key="player_busy" if self.player_busy else "player_no_response",

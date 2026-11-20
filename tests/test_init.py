@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 
 from custom_components.pianobar.const import (
     DOMAIN,
@@ -51,7 +51,10 @@ async def test_async_setup_entry(
     
     with patch(
         "custom_components.pianobar.PianobarCoordinator"
-    ) as mock_coordinator_class:
+    ) as mock_coordinator_class, patch(
+        "custom_components.pianobar.async_integration_version",
+        AsyncMock(return_value="3.1.4"),
+    ):
         mock_coordinator = mock_coordinator_class.return_value
         mock_coordinator.async_connect = AsyncMock()
         mock_coordinator.data = {"playing": False}
@@ -61,6 +64,11 @@ async def test_async_setup_entry(
 
         assert DOMAIN in hass.data
         assert mock_config_entry.entry_id in hass.data[DOMAIN]
+        # The coordinator knows its entry and the manifest version before
+        # connecting, because the connect-time `process` is checked
+        _, kwargs = mock_coordinator_class.call_args
+        assert kwargs["entry_id"] == mock_config_entry.entry_id
+        assert kwargs["integration_version"] == "3.1.4"
         
         # Check services are registered
         assert hass.services.has_service(DOMAIN, SERVICE_LOVE_SONG)
@@ -110,6 +118,39 @@ async def test_async_unload_entry(
         
         mock_coordinator.async_disconnect.assert_called_once()
         assert mock_config_entry.entry_id not in hass.data[DOMAIN]
+
+
+async def test_unload_deletes_version_issue(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Unloading (or removing) the entry deletes its version-mismatch issue."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.async_disconnect = AsyncMock()
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        issue_id = f"player_version_mismatch_{mock_config_entry.entry_id}"
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="player_version_mismatch",
+        )
+
+        assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_service_love_song(
@@ -536,6 +577,10 @@ async def test_service_get_station_info(
         
         mock_coordinator.send_event.assert_called_once()
         assert "artistSeeds" in response
+        # Waits for the reply about the station it asked for
+        mock_coordinator.wait_for_response.assert_awaited_once_with(
+            "station_info:123"
+        )
 
 
 async def test_service_delete_seed(

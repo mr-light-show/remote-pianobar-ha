@@ -286,5 +286,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "player_version_mismatch": {
+      "title": "remote-pianobar version mismatch",
+      "description": "remote-pianobar {player_version} is connected, but this integration expects {expected_major}.x. Update both to the same major version."
+    }
   }
 }
