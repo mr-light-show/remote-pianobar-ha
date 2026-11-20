@@ -565,3 +565,46 @@ async def test_media_player_unavailable_when_update_failed(
     player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
 
     assert player.available is False
+
+
+async def test_play_station_waits_for_refreshed_list(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """A station missing from the list is played once the refreshed list arrives."""
+    mock_coordinator.data = {"stations": [], "station": ""}
+    calls: list[str] = []
+
+    async def send_event(name, payload):
+        calls.append(name)
+
+    async def wait_for_stations(timeout):
+        # The refreshed list must have been requested before waiting
+        assert calls == ["query.stations"]
+        mock_coordinator.data["stations"] = [{"id": "new1", "name": "Fresh"}]
+        return True
+
+    mock_coordinator.send_event = AsyncMock(side_effect=send_event)
+    mock_coordinator.async_wait_for_stations = AsyncMock(side_effect=wait_for_stations)
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_play_media(MEDIA_TYPE_STATION, "Fresh")
+
+    mock_coordinator.async_wait_for_stations.assert_awaited_once()
+    mock_coordinator.send_event.assert_any_await("station.change", "new1")
+
+
+async def test_play_station_not_found_after_refresh(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """No refreshed list in time: nothing is played."""
+    mock_coordinator.data = {"stations": [], "station": ""}
+    mock_coordinator.async_wait_for_stations = AsyncMock(return_value=False)
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+    await player.async_play_media(MEDIA_TYPE_STATION, "Missing")
+
+    mock_coordinator.send_event.assert_awaited_once_with("query.stations", None)

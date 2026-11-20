@@ -23,6 +23,7 @@ from .const import (
     OPERATION_RESPONSE_KEYS,
     RECONNECT_GRACE_PERIOD,
     RESPONSE_TIMEOUT,
+    STATIONS_RETRY_DELAYS,
     WS_CONNECT_TIMEOUT,
     WS_HEARTBEAT,
     WS_MAX_RECONNECT_DELAY,
@@ -83,6 +84,13 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # and whether it ended without a reconnect
         self._grace_unsub: CALLBACK_TYPE | None = None
         self._grace_expired = False
+        # Station list: set by any `stations` event on the current connection;
+        # bounded re-query while it is missing
+        self._stations_received = asyncio.Event()
+        self._stations_waiters: list[asyncio.Event] = []
+        self._stations_retry_unsub: CALLBACK_TYPE | None = None
+        self._stations_retry_attempt = 0
+        self._stations_retry_at = 0.0
 
     @property
     def player_available(self) -> bool:
@@ -136,6 +144,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # Allow reuse of this coordinator after partial teardown (e.g. failed setup retry).
         self._is_closing = False
         self._initial_process_event.clear()
+        self._cancel_stations_retry()
+        self._stations_received.clear()
+        self._stations_retry_attempt = 0
 
         if self._session is None:
             self._session = aiohttp.ClientSession()
@@ -177,6 +188,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
             if self.is_connected:
                 self._end_grace()
+                if not self._stations_received.is_set():
+                    self._schedule_stations_retry(STATIONS_RETRY_DELAYS[0])
             self._notify_connection_changed()
             
         except TimeoutError as err:
@@ -201,6 +214,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             self._reconnect_task = None
 
         await self._async_release_connection()
+        self._cancel_stations_retry()
         self._cancel_grace()
         self._grace_expired = False
         self._clear_busy()
@@ -259,6 +273,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 # Hold the last state while reconnecting; go unavailable only if
                 # the grace period ends first. A connection that closes again
                 # before its first `process` does not restart the period.
+                self._cancel_stations_retry()
                 if self._grace_unsub is None and not self._grace_expired:
                     self._grace_unsub = async_call_later(
                         self.hass, RECONNECT_GRACE_PERIOD, self._async_grace_expired
@@ -441,6 +456,60 @@ class PianobarCoordinator(DataUpdateCoordinator):
         self.data["stations"] = payload
         if payload:
             self.data["pandora_connected"] = True
+        # Any list counts, an empty one too (no Pandora session yet)
+        self._stations_received.set()
+        self._cancel_stations_retry()
+        for waiter in self._stations_waiters:
+            waiter.set()
+
+    def _schedule_stations_retry(self, delay: float) -> None:
+        """(Re)schedule the next station-list re-query `delay` seconds from now."""
+        self._cancel_stations_retry()
+        self._stations_retry_at = self.hass.loop.time() + delay
+        self._stations_retry_unsub = async_call_later(
+            self.hass, delay, self._async_stations_retry
+        )
+
+    def _cancel_stations_retry(self) -> None:
+        """Cancel a pending station-list re-query."""
+        if self._stations_retry_unsub is not None:
+            self._stations_retry_unsub()
+            self._stations_retry_unsub = None
+
+    async def _async_stations_retry(self, _now: datetime) -> None:
+        """Re-send `query` while no station list has arrived.
+
+        Uses `query` (reply to this client only), not `query.stations`, which
+        the player broadcasts to every client.
+        """
+        self._stations_retry_unsub = None
+        if self._stations_received.is_set() or not self.is_connected:
+            return
+        self._stations_retry_attempt += 1
+        await self.send_event("query", None)
+        if self._stations_retry_attempt < len(STATIONS_RETRY_DELAYS):
+            self._schedule_stations_retry(
+                STATIONS_RETRY_DELAYS[self._stations_retry_attempt]
+            )
+        else:
+            _LOGGER.warning(
+                "Player %s:%s sent no station list after %s queries; not asking again",
+                self.host,
+                self.port,
+                self._stations_retry_attempt + 1,
+            )
+
+    async def async_wait_for_stations(self, timeout: float) -> bool:
+        """Wait for the next `stations` event; return False after `timeout` s."""
+        waiter = asyncio.Event()
+        self._stations_waiters.append(waiter)
+        try:
+            await asyncio.wait_for(waiter.wait(), timeout)
+        except TimeoutError:
+            return False
+        finally:
+            self._stations_waiters.remove(waiter)
+        return True
 
     def _handle_pandora_disconnected_event(self, payload: dict[str, Any]) -> None:
         """Handle pandora.disconnected (Pandora session ended; keep stations)."""
@@ -524,6 +593,12 @@ class PianobarCoordinator(DataUpdateCoordinator):
             )
         for key in self._pending_waits:
             self._response_data[key] = _ResponseFailure("player_busy")
+        # Our station-list query may have been refused: ask again soon, without
+        # using up an attempt
+        if self._stations_retry_unsub is not None:
+            soonest = STATIONS_RETRY_DELAYS[0]
+            if self._stations_retry_at - self.hass.loop.time() > soonest:
+                self._schedule_stations_retry(soonest)
         # (Re)start the window; _handle_message notifies listeners
         if self._busy_unsub is not None:
             self._busy_unsub()

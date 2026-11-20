@@ -20,6 +20,7 @@ from custom_components.pianobar.const import (
     BUSY_WINDOW,
     DOMAIN,
     RECONNECT_GRACE_PERIOD,
+    STATIONS_RETRY_DELAYS,
     WS_HEARTBEAT,
 )
 from custom_components.pianobar.coordinator import PianobarCoordinator
@@ -1130,3 +1131,169 @@ async def test_connect_uses_heartbeat_constant(hass: HomeAssistant) -> None:
     assert coordinator._grace_unsub is None
     assert coordinator.player_available is True
     await coordinator.async_disconnect()
+
+
+QUERY_FRAME = '2["query",null]'
+STATIONS_FRAME = '2["stations",[{"id":"s1","name":"One"}]]'
+
+
+def _query_sends(ws: MagicMock) -> int:
+    return sum(1 for c in ws.send_str.call_args_list if c.args[0] == QUERY_FRAME)
+
+
+async def _connect(coordinator: PianobarCoordinator, frames: list[str]) -> MagicMock:
+    """async_connect against a mock player that answers query with `frames`."""
+    mock_ws = _open_ws()
+    mock_session = MagicMock()
+    mock_session.closed = False
+    mock_session.close = AsyncMock()
+    mock_session.ws_connect = AsyncMock(return_value=mock_ws)
+
+    async def fake_listen() -> None:
+        await asyncio.sleep(0)
+        for frame in frames:
+            await coordinator._handle_message(frame)
+
+    with patch(
+        "custom_components.pianobar.coordinator.aiohttp.ClientSession",
+        return_value=mock_session,
+    ), patch.object(coordinator, "_listen", new=fake_listen):
+        await coordinator.async_connect()
+    return mock_ws
+
+
+async def _advance(hass: HomeAssistant, seconds: float) -> None:
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds))
+    await hass.async_block_till_done()
+
+
+async def test_stations_requeried_when_missing(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No stations after connect: re-send query once per delay, then give up."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    ws = await _connect(coordinator, [PROCESS_FRAME])
+    assert _query_sends(ws) == 1
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.pianobar.coordinator"):
+        for expected, delay in enumerate(STATIONS_RETRY_DELAYS, start=2):
+            await _advance(hass, delay - 1)
+            assert _query_sends(ws) == expected - 1
+            await _advance(hass, delay + 1)
+            assert _query_sends(ws) == expected
+        await _advance(hass, 600)
+
+    assert _query_sends(ws) == 1 + len(STATIONS_RETRY_DELAYS)
+    assert coordinator._stations_retry_unsub is None
+    assert "station list" in caplog.text
+    await coordinator.async_disconnect()
+
+
+async def test_no_requery_after_stations_arrive(hass: HomeAssistant) -> None:
+    """Stations in the query reply: no retry is scheduled."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    ws = await _connect(coordinator, [PROCESS_FRAME, STATIONS_FRAME])
+
+    assert coordinator._stations_retry_unsub is None
+    await _advance(hass, 200)
+    assert _query_sends(ws) == 1
+    await coordinator.async_disconnect()
+
+
+async def test_late_stations_stop_requery(hass: HomeAssistant) -> None:
+    """A stations event after one retry stops the rest (an empty list counts)."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    ws = await _connect(coordinator, [PROCESS_FRAME])
+    await _advance(hass, STATIONS_RETRY_DELAYS[0] + 1)
+    assert _query_sends(ws) == 2
+
+    await coordinator._handle_message('2["stations",[]]')
+
+    assert coordinator._stations_retry_unsub is None
+    await _advance(hass, 200)
+    assert _query_sends(ws) == 2
+    await coordinator.async_disconnect()
+
+
+async def test_requery_cancelled_on_disconnect(hass: HomeAssistant) -> None:
+    """A user disconnect cancels the pending re-query."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    ws = await _connect(coordinator, [PROCESS_FRAME])
+    assert coordinator._stations_retry_unsub is not None
+
+    await coordinator.async_disconnect()
+
+    assert coordinator._stations_retry_unsub is None
+    await _advance(hass, 200)
+    assert _query_sends(ws) == 1
+
+
+async def test_requery_cancelled_on_connection_loss(hass: HomeAssistant) -> None:
+    """A dropped connection cancels the pending re-query; reconnect starts over."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    ws = await _connect(coordinator, [PROCESS_FRAME])
+
+    await _drop_connection(coordinator)
+
+    assert coordinator._stations_retry_unsub is None
+    await _advance(hass, STATIONS_RETRY_DELAYS[0] + 1)
+    assert _query_sends(ws) == 1
+    await coordinator.async_disconnect()
+
+
+async def test_requery_skipped_while_disconnected(hass: HomeAssistant) -> None:
+    """A retry that fires without a connection sends nothing and stops."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    ws = await _connect(coordinator, [PROCESS_FRAME])
+    ws.closed = True
+
+    await _advance(hass, STATIONS_RETRY_DELAYS[0] + 1)
+
+    assert _query_sends(ws) == 1
+    assert coordinator._stations_retry_unsub is None
+    await coordinator.async_disconnect()
+
+
+async def test_busy_brings_requery_forward(hass: HomeAssistant) -> None:
+    """A busy notice while stations are missing retries after the first delay."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    ws = await _connect(coordinator, [PROCESS_FRAME])
+    await _advance(hass, STATIONS_RETRY_DELAYS[0] + 1)
+    assert _query_sends(ws) == 2  # now waiting STATIONS_RETRY_DELAYS[1]
+
+    await coordinator._handle_message(BUSY_FRAME)
+    await _advance(hass, STATIONS_RETRY_DELAYS[0] + 1)
+    assert _query_sends(ws) == 3
+
+    # The busy retry used up no attempt: one is left, after the last delay
+    await _advance(hass, STATIONS_RETRY_DELAYS[-1] + 1)
+    assert _query_sends(ws) == 1 + len(STATIONS_RETRY_DELAYS)
+    await _advance(hass, 600)
+    assert _query_sends(ws) == 1 + len(STATIONS_RETRY_DELAYS)
+    await coordinator.async_disconnect()
+
+
+async def test_busy_does_not_delay_sooner_requery(hass: HomeAssistant) -> None:
+    """A busy notice never pushes a retry that is already due sooner."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    await _connect(coordinator, [PROCESS_FRAME])
+    unsub = coordinator._stations_retry_unsub
+
+    await coordinator._handle_message(BUSY_FRAME)
+
+    assert coordinator._stations_retry_unsub is unsub
+    await coordinator.async_disconnect()
+
+
+async def test_wait_for_stations(hass: HomeAssistant) -> None:
+    """async_wait_for_stations waits for the next stations event, not an old one."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._stations_received.set()
+
+    assert await coordinator.async_wait_for_stations(0.01) is False
+
+    task = asyncio.create_task(coordinator.async_wait_for_stations(5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(STATIONS_FRAME)
+    assert await asyncio.wait_for(task, timeout=1) is True
+    assert coordinator._stations_waiters == []
