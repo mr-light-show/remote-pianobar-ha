@@ -41,7 +41,7 @@ from .const import (
     SERVICE_TOGGLE_PLAYBACK,
     WS_MAX_REQUEST_BYTES,
 )
-from .coordinator import PianobarCoordinator
+from .coordinator import PianobarCoordinator, station_info_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -209,7 +209,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             "station.getInfo",
             {"stationId": station_id}
         )
-        station_info = await coordinator.wait_for_response("station_info")
+        station_info = await coordinator.wait_for_response(
+            station_info_key(str(station_id))
+        )
         return station_info
 
     async def async_delete_seed(call: ServiceCall) -> None:

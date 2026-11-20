@@ -536,6 +536,10 @@ async def test_service_get_station_info(
         
         mock_coordinator.send_event.assert_called_once()
         assert "artistSeeds" in response
+        # Waits for the reply about the station it asked for
+        mock_coordinator.wait_for_response.assert_awaited_once_with(
+            "station_info:123"
+        )
 
 
 async def test_service_delete_seed(

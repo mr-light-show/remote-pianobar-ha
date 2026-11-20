@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -33,6 +34,17 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+STATION_INFO_KEY = "station_info"
+
+
+def station_info_key(station_id: str) -> str:
+    """Return the response key for the `stationInfo` reply about one station."""
+    return f"{STATION_INFO_KEY}:{station_id}"
+
+
+def _is_station_info_key(key: str) -> bool:
+    return key == STATION_INFO_KEY or key.startswith(f"{STATION_INFO_KEY}:")
 
 
 @dataclass
@@ -77,8 +89,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
         
         # Response data storage (for service calls that return data)
         self._response_data: dict[str, Any] = {}
-        # Response keys a service is currently waiting for
-        self._pending_waits: set[str] = set()
+        # Response keys services are currently waiting for, oldest first, with
+        # the number of waits for each
+        self._pending_waits: Counter[str] = Counter()
         # Busy episode: loop time of its first notice, and the timer ending it
         self._busy_since: float | None = None
         self._busy_unsub: CALLBACK_TYPE | None = None
@@ -547,9 +560,36 @@ class PianobarCoordinator(DataUpdateCoordinator):
         """Handle query.upcoming.result event (upcoming songs)."""
         self._set_response("upcoming", payload)
 
+    def _oldest_station_info_wait(self) -> str | None:
+        """Return the key of the oldest stationInfo wait not yet answered."""
+        return next(
+            (
+                k
+                for k in self._pending_waits
+                if _is_station_info_key(k) and k not in self._response_data
+            ),
+            None,
+        )
+
     def _handle_station_info_event(self, payload: dict[str, Any]) -> None:
-        """Handle stationInfo event (station seeds and feedback)."""
-        self._set_response("station_info", payload)
+        """Handle stationInfo event (station seeds and feedback).
+
+        The reply names its station, so two overlapping get_station_info calls
+        each get their own. A reply without one (older player) answers the
+        oldest wait: the player answers one client's requests in order.
+        """
+        station_id = str(payload.get("stationId") or "")
+        if not station_id:
+            self._set_response(
+                self._oldest_station_info_wait() or STATION_INFO_KEY, payload
+            )
+            return
+        key = station_info_key(station_id)
+        if key in self._pending_waits:
+            self._set_response(key, payload)
+        else:
+            _LOGGER.debug("Ignoring stationInfo for %s: nothing waits for it", station_id)
+            self._clear_busy()
 
     def _handle_station_modes_event(self, payload: dict[str, Any]) -> None:
         """Handle stationModes event (station playback modes)."""
@@ -666,12 +706,22 @@ class PianobarCoordinator(DataUpdateCoordinator):
         elif operation == "query.upcoming":
             self._response_data["upcoming"] = []  # Empty list indicates no upcoming songs
             _LOGGER.debug("Backend error for %s: %s", operation, message)
-        elif OPERATION_RESPONSE_KEYS.get(operation) in self._pending_waits:
+        elif (key := self._operation_wait_key(operation)) is not None:
             # Fail the waiting service now instead of after the timeout
-            self._response_data[OPERATION_RESPONSE_KEYS[operation]] = _ResponseFailure(
+            self._response_data[key] = _ResponseFailure(
                 "player_request_failed", {"message": message}
             )
             _LOGGER.debug("Backend error for %s: %s", operation, message)
+
+    def _operation_wait_key(self, operation: str) -> str | None:
+        """Return the pending wait a reply-style operation's error fails.
+
+        A stationInfo error names no station: it belongs to the oldest wait.
+        """
+        key = OPERATION_RESPONSE_KEYS.get(operation)
+        if key == STATION_INFO_KEY:
+            return self._oldest_station_info_wait()
+        return key if key in self._pending_waits else None
 
     def get_response_data(self, key: str) -> Any:
         """Get and clear response data for a given key."""
@@ -692,7 +742,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             )
         # Clear any stale data for this key before waiting for fresh response
         self._response_data.pop(key, None)
-        self._pending_waits.add(key)
+        self._pending_waits[key] += 1
         try:
             loop = self.hass.loop
             deadline = loop.time() + timeout
@@ -708,7 +758,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     return value
                 await asyncio.sleep(0.1)
         finally:
-            self._pending_waits.discard(key)
+            self._pending_waits[key] -= 1
+            if self._pending_waits[key] <= 0:
+                del self._pending_waits[key]
         raise HomeAssistantError(
             translation_domain=DOMAIN,
             translation_key="player_busy" if self.player_busy else "player_no_response",
