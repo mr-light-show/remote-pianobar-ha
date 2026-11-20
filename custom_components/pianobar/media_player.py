@@ -155,6 +155,8 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         attrs: dict[str, Any] = {
             "player_connected": self.coordinator.is_connected,
             "player_busy": self.coordinator.player_busy,
+            # The card compares its own major version with this one
+            "integration_version": self.coordinator.integration_version,
             "pandora_connected": self.coordinator.data.get("pandora_connected", True),
             "supported_actions": [
                 "love_song",

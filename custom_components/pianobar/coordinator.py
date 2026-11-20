@@ -12,6 +12,7 @@ from typing import Any
 import aiohttp
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -32,10 +33,20 @@ from .const import (
     WS_MAX_REQUEST_BYTES,
     WS_RECONNECT_DELAY,
 )
+from .version_check import (
+    ISSUE_TRANSLATION_KEY,
+    MISSING,
+    OLDER_PLAYER_VERSION,
+    parse_major,
+    player_major,
+    version_issue_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 STATION_INFO_KEY = "station_info"
+# Player version not yet checked on this connection
+_UNCHECKED = object()
 
 
 def station_info_key(station_id: str) -> str:
@@ -58,8 +69,20 @@ class _ResponseFailure:
 class PianobarCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Pianobar data from WebSocket."""
 
-    def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
-        """Initialize."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        host: str,
+        port: int,
+        *,
+        entry_id: str | None = None,
+        integration_version: str | None = None,
+    ) -> None:
+        """Initialize.
+
+        With `entry_id` and `integration_version` (from manifest.json), a
+        player of another major version raises a Repairs issue.
+        """
         super().__init__(
             hass,
             _LOGGER,
@@ -74,6 +97,10 @@ class PianobarCoordinator(DataUpdateCoordinator):
         self._reconnect_delay = WS_RECONNECT_DELAY
         self._is_closing = False
         self._initial_process_event = asyncio.Event()
+        self.entry_id = entry_id
+        self.integration_version = integration_version
+        # Player version last checked on this connection
+        self._checked_player_version: object = _UNCHECKED
 
         # State data
         self.data: dict[str, Any] = {
@@ -159,6 +186,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # Allow reuse of this coordinator after partial teardown (e.g. failed setup retry).
         self._is_closing = False
         self._initial_process_event.clear()
+        self._reset_version_check()
         self._cancel_stations_retry()
         self._stations_received.clear()
         self._stations_retry_attempt = 0
@@ -430,6 +458,55 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # The first `process` on a new connection ends a reconnect grace period
         self._end_grace()
         self._initial_process_event.set()
+        # Last: a failed check must not hold up the connection
+        self._check_player_version(payload.get("version"))
+
+    def _reset_version_check(self) -> None:
+        """Check (and warn about) the player version again on a new connection."""
+        self._checked_player_version = _UNCHECKED
+
+    def _check_player_version(self, version: Any) -> None:
+        """Raise or clear the Repairs issue for a player major-version mismatch.
+
+        Checked on every `process`, because a reconnect may reach another
+        player; logged once per connection. Warns only.
+        """
+        expected = parse_major(self.integration_version)
+        if self.entry_id is None or expected is None:
+            return
+        if version == self._checked_player_version:
+            return
+        self._checked_player_version = version
+        issue_id = version_issue_id(self.entry_id)
+        major = player_major(version)
+        if major is None:
+            _LOGGER.debug("Not checking player version %r: not a release version", version)
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        if major == expected:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        shown = OLDER_PLAYER_VERSION if major == MISSING else str(version)
+        _LOGGER.warning(
+            "remote-pianobar %s at %s:%s does not match this integration "
+            "(expects %s.x); update both to the same major version",
+            shown,
+            self.host,
+            self.port,
+            expected,
+        )
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_TRANSLATION_KEY,
+            translation_placeholders={
+                "player_version": shown,
+                "expected_major": str(expected),
+            },
+        )
 
     def _handle_start_event(self, payload: dict[str, Any]) -> None:
         """Handle start event (new song started)."""
@@ -706,9 +783,9 @@ class PianobarCoordinator(DataUpdateCoordinator):
         elif operation == "query.upcoming":
             self._response_data["upcoming"] = []  # Empty list indicates no upcoming songs
             _LOGGER.debug("Backend error for %s: %s", operation, message)
-        elif (key := self._operation_wait_key(operation)) is not None:
+        elif (wait_key := self._operation_wait_key(operation)) is not None:
             # Fail the waiting service now instead of after the timeout
-            self._response_data[key] = _ResponseFailure(
+            self._response_data[wait_key] = _ResponseFailure(
                 "player_request_failed", {"message": message}
             )
             _LOGGER.debug("Backend error for %s: %s", operation, message)
