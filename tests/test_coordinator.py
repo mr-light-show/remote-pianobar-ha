@@ -864,3 +864,40 @@ async def test_async_connect_continues_if_process_times_out(
     assert "No process event received" in caplog.text
     await coord.async_disconnect()
 
+
+
+@pytest.mark.parametrize(
+    "frame",
+    ['2["stop"]', '2["stop",{}]'],
+    ids=["no_payload", "empty_object"],
+)
+async def test_handle_message_stop_frames(hass: HomeAssistant, frame: str) -> None:
+    """Older players send 2["stop"], current ones 2["stop",{}]: both stop playback."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data.update({"playing": True, "song": {"title": "T"}, "elapsed": 3})
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    await coordinator._handle_message(frame)
+
+    assert coordinator.data["playing"] is False
+    assert "song" not in coordinator.data
+    assert "elapsed" not in coordinator.data
+    listener.assert_called_once()
+    unsub_listener()
+
+
+@pytest.mark.parametrize("frame", ['2["progress"]', '2["progress",null]', "2[]"])
+async def test_handle_message_payloadless_event_ignored(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture, frame: str
+) -> None:
+    """Payload-less events other than stop are dropped without an error log."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data.update({"playing": True, "elapsed": 3})
+    before = dict(coordinator.data)
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.pianobar.coordinator"):
+        await coordinator._handle_message(frame)
+
+    assert coordinator.data == before
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]

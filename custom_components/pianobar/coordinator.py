@@ -263,14 +263,19 @@ class PianobarCoordinator(DataUpdateCoordinator):
             json_str = message[1:]
             event_data = json.loads(json_str)
             
-            if not isinstance(event_data, list) or len(event_data) < 2:
+            if not isinstance(event_data, list) or not event_data:
                 return
-                
+
             event_name = event_data[0]
-            event_payload = event_data[1]
-            
+            # Older players send `stop` as 2["stop"], with no payload element
+            event_payload: Any = event_data[1] if len(event_data) > 1 else None
+
             _LOGGER.debug("Received event: %s", event_name)
-            
+
+            if event_payload is None and event_name != "stop":
+                _LOGGER.debug("Ignoring event without payload: %s", event_name)
+                return
+
             # Handle different event types
             if event_name == "process":
                 self._handle_process_event(event_payload)
