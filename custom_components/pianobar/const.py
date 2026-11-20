@@ -15,6 +15,21 @@ WS_RECONNECT_DELAY = 5
 WS_MAX_RECONNECT_DELAY = 300
 # Wait for first `process` after `query` so coordinator.data is populated before platforms load
 INITIAL_PROCESS_TIMEOUT = 30.0
+# Wait for a reply to a request. The player queues requests fairly per client,
+# but Pandora calls still run one at a time, so a reply can wait behind others.
+RESPONSE_TIMEOUT = 10.0
+# Player `error` operations for reply-style requests -> response key they fail
+OPERATION_RESPONSE_KEYS: dict[str, str] = {
+    "station.getStationInfo": "station_info",
+    "station.getStationModes": "station_modes",
+    "music.search": "search_results",
+    "station.getGenres": "genres",
+}
+# Player `error` operation for a request refused because its queue is full.
+# The player sends it once per episode, so timeouts within BUSY_WINDOW seconds
+# of the notice are reported as busy too.
+BUSY_OPERATION = "command"
+BUSY_WINDOW = 30.0
 
 # Services
 SERVICE_LOVE_SONG = "love_song"

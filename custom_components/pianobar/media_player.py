@@ -146,6 +146,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         """Return entity specific state attributes."""
         attrs: dict[str, Any] = {
             "player_connected": self.coordinator.is_connected,
+            "player_busy": self.coordinator.player_busy,
             "pandora_connected": self.coordinator.data.get("pandora_connected", True),
             "supported_actions": [
                 "love_song",

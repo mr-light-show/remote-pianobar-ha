@@ -6,11 +6,17 @@ import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from datetime import timedelta
+
 import aiohttp
 import pytest
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.pianobar.const import BUSY_WINDOW, DOMAIN
 from custom_components.pianobar.coordinator import PianobarCoordinator
 
 
@@ -414,19 +420,250 @@ async def test_get_response_data(hass: HomeAssistant) -> None:
     assert result2 is None
 
 
-async def test_wait_for_response_timeout(hass: HomeAssistant) -> None:
-    """Test waiting for response with timeout."""
+def _open_ws() -> MagicMock:
+    """Return a mock WebSocket that reports itself open."""
+    ws = MagicMock()
+    ws.closed = False
+    ws.send_str = AsyncMock()
+    ws.close = AsyncMock()
+    return ws
+
+
+async def test_wait_for_response_timeout_raises(hass: HomeAssistant) -> None:
+    """A reply that never arrives raises a translated no-response error."""
     coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
-    
-    # Wait for data that never arrives (short timeout)
-    result = await coordinator.wait_for_response("missing_key", timeout=0.1)
-    
-    assert result is None
+    coordinator._ws = _open_ws()
+
+    with pytest.raises(HomeAssistantError) as err:
+        await coordinator.wait_for_response("missing_key", timeout=0.1)
+
+    assert err.value.translation_domain == DOMAIN
+    assert err.value.translation_key == "player_no_response"
+    assert "missing_key" not in coordinator._pending_waits
+
+
+async def test_wait_for_response_not_connected_raises(hass: HomeAssistant) -> None:
+    """Waiting without a connection fails at once."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await coordinator.wait_for_response("station_info", timeout=1)
+
+    assert err.value.translation_key == "player_not_connected"
+
+
+async def test_operation_error_fails_pending_wait(hass: HomeAssistant) -> None:
+    """A player error for the awaited operation fails the wait before the timeout."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    task = asyncio.create_task(coordinator.wait_for_response("station_info", timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(
+        '2["error",{"operation":"station.getStationInfo","message":"Boom"}]'
+    )
+    with pytest.raises(HomeAssistantError) as err:
+        await asyncio.wait_for(task, timeout=1)
+
+    assert err.value.translation_key == "player_request_failed"
+    assert err.value.translation_placeholders == {"message": "Boom"}
+
+
+@pytest.mark.parametrize(
+    ("operation", "key"),
+    [
+        ("station.getStationModes", "station_modes"),
+        ("music.search", "search_results"),
+        ("station.getGenres", "genres"),
+    ],
+)
+async def test_operation_errors_map_to_their_waits(
+    hass: HomeAssistant, operation: str, key: str
+) -> None:
+    """Each reply-style operation error fails the matching wait."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    task = asyncio.create_task(coordinator.wait_for_response(key, timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(
+        "2" + json.dumps(["error", {"operation": operation, "message": "Failed"}])
+    )
+    with pytest.raises(HomeAssistantError) as err:
+        await asyncio.wait_for(task, timeout=1)
+
+    assert err.value.translation_key == "player_request_failed"
+
+
+async def test_station_info_too_large_fails_fast(hass: HomeAssistant) -> None:
+    """The player's response-too-large error for stationInfo fails the wait."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    task = asyncio.create_task(coordinator.wait_for_response("station_info", timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(
+        '2["error",{"operation":"station.getStationInfo",'
+        '"message":"The response is too large to send."}]'
+    )
+    with pytest.raises(HomeAssistantError) as err:
+        await asyncio.wait_for(task, timeout=1)
+
+    assert err.value.translation_key == "player_request_failed"
+    assert err.value.translation_placeholders == {
+        "message": "The response is too large to send."
+    }
+
+
+BUSY_FRAME = (
+    '2["error",{"operation":"command",'
+    '"message":"The player is busy. Try again in a moment."}]'
+)
+
+
+async def test_busy_fails_all_pending_waits(hass: HomeAssistant) -> None:
+    """One busy notice fails every reply HA is waiting for."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    info = asyncio.create_task(coordinator.wait_for_response("station_info", timeout=5))
+    genres = asyncio.create_task(coordinator.wait_for_response("genres", timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(BUSY_FRAME)
+
+    for task in (info, genres):
+        with pytest.raises(HomeAssistantError) as err:
+            await asyncio.wait_for(task, timeout=1)
+        assert err.value.translation_key == "player_busy"
+    assert coordinator.player_busy is True
+
+    await coordinator.async_disconnect()
+    assert coordinator.player_busy is False
+
+
+async def test_wait_timeout_reports_busy_within_window(hass: HomeAssistant) -> None:
+    """The player sends one notice per episode: later timeouts report busy too."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(BUSY_FRAME)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await coordinator.wait_for_response("genres", timeout=0.1)
+
+    assert err.value.translation_key == "player_busy"
+    await coordinator.async_disconnect()
+
+
+async def test_reply_clears_busy(hass: HomeAssistant) -> None:
+    """A reply means the player accepted a request again."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(BUSY_FRAME)
+    assert coordinator.player_busy is True
+
+    task = asyncio.create_task(coordinator.wait_for_response("genres", timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message('2["genres",{"categories":[]}]')
+
+    assert await asyncio.wait_for(task, timeout=1) == {"categories": []}
+    assert coordinator.player_busy is False
+    assert coordinator._busy_unsub is None
+
+
+async def test_busy_without_waiter_sets_attribute_once(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Repeated notices in one episode log one warning and keep the episode start."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.pianobar.coordinator"):
+        await coordinator._handle_message(BUSY_FRAME)
+        started = coordinator._busy_since
+        await coordinator._handle_message(BUSY_FRAME)
+
+    assert coordinator.player_busy is True
+    assert coordinator._busy_since == started
+    assert listener.call_count == 2  # once per received frame, as for every event
+    busy_records = [r for r in caplog.records if "busy" in r.getMessage()]
+    assert len(busy_records) == 1
+    assert busy_records[0].levelno == logging.WARNING
+
+    unsub_listener()
+    await coordinator.async_disconnect()
+
+
+async def test_busy_window_expiry_clears_attribute(hass: HomeAssistant) -> None:
+    """Without a reply, the busy flag clears after BUSY_WINDOW and listeners hear it."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    await coordinator._handle_message(BUSY_FRAME)
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=BUSY_WINDOW - 5))
+    await hass.async_block_till_done()
+    assert coordinator.player_busy is True
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=BUSY_WINDOW + 1))
+    await hass.async_block_till_done()
+
+    assert coordinator.player_busy is False
+    assert coordinator._busy_unsub is None
+    listener.assert_called_once()
+    unsub_listener()
+
+
+async def test_repeated_busy_notice_restarts_window(hass: HomeAssistant) -> None:
+    """A new notice while busy restarts the window instead of stacking timers."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    await coordinator._handle_message(BUSY_FRAME)
+    first_unsub = coordinator._busy_unsub
+    await coordinator._handle_message(BUSY_FRAME)
+
+    assert coordinator._busy_unsub is not first_unsub
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=BUSY_WINDOW + 1))
+    await hass.async_block_till_done()
+    assert coordinator.player_busy is False
+
+
+async def test_unrelated_operation_error_without_waiter_is_ignored(
+    hass: HomeAssistant,
+) -> None:
+    """An operation error nobody waits for leaves nothing behind for a later wait."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    await coordinator._handle_message('2["error",{"operation":"music.search","message":"x"}]')
+
+    assert "search_results" not in coordinator._response_data
+
+
+async def test_not_implemented_station_change_does_not_remove_station(
+    hass: HomeAssistant,
+) -> None:
+    """A not-implemented refusal for station.change keeps the station list.
+
+    The player sends these refusals only to the requesting client (and HA
+    never sends station.change as an action); this pins the removal branch.
+    """
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data["stations"] = [{"id": "1", "name": "A"}]
+    coordinator.data["stationId"] = "1"
+
+    coordinator._handle_error_event({
+        "operation": "station.change",
+        "message": "This action asks for input on the player terminal and is "
+        "not available through the generic action command.",
+    })
+
+    assert coordinator.data["stations"] == [{"id": "1", "name": "A"}]
 
 
 async def test_wait_for_response_success(hass: HomeAssistant) -> None:
     """Test waiting for response successfully."""
     coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
     
     # Simulate async data arrival
     async def set_data():
@@ -627,3 +864,40 @@ async def test_async_connect_continues_if_process_times_out(
     assert "No process event received" in caplog.text
     await coord.async_disconnect()
 
+
+
+@pytest.mark.parametrize(
+    "frame",
+    ['2["stop"]', '2["stop",{}]'],
+    ids=["no_payload", "empty_object"],
+)
+async def test_handle_message_stop_frames(hass: HomeAssistant, frame: str) -> None:
+    """Older players send 2["stop"], current ones 2["stop",{}]: both stop playback."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data.update({"playing": True, "song": {"title": "T"}, "elapsed": 3})
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    await coordinator._handle_message(frame)
+
+    assert coordinator.data["playing"] is False
+    assert "song" not in coordinator.data
+    assert "elapsed" not in coordinator.data
+    listener.assert_called_once()
+    unsub_listener()
+
+
+@pytest.mark.parametrize("frame", ['2["progress"]', '2["progress",null]', "2[]"])
+async def test_handle_message_payloadless_event_ignored(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture, frame: str
+) -> None:
+    """Payload-less events other than stop are dropped without an error log."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data.update({"playing": True, "elapsed": 3})
+    before = dict(coordinator.data)
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.pianobar.coordinator"):
+        await coordinator._handle_message(frame)
+
+    assert coordinator.data == before
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]

@@ -57,6 +57,18 @@
   "exceptions": {
     "no_instance": {
       "message": "No pianobar instance found"
+    },
+    "player_no_response": {
+      "message": "The player did not answer in time. Try again in a moment."
+    },
+    "player_not_connected": {
+      "message": "Home Assistant is not connected to the player."
+    },
+    "player_request_failed": {
+      "message": "The player could not complete the request: {message}"
+    },
+    "player_busy": {
+      "message": "The player is busy. Try again in a moment."
     }
   },
   "services": {

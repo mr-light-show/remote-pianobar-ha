@@ -201,7 +201,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {"stationId": station_id}
         )
         station_info = await coordinator.wait_for_response("station_info")
-        return station_info or {}
+        return station_info
 
     async def async_delete_seed(call: ServiceCall) -> None:
         """Handle delete_seed service call."""
@@ -236,7 +236,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {"stationId": station_id}
         )
         modes = await coordinator.wait_for_response("station_modes")
-        return {"modes": modes or []}
+        return {"modes": modes}
 
     async def async_set_station_mode(call: ServiceCall) -> None:
         """Handle set_station_mode service call."""
@@ -269,7 +269,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {"query": query}
         )
         search_results = await coordinator.wait_for_response("search_results")
-        return search_results or {"categories": []}
+        return search_results
 
     async def async_get_genres(call: ServiceCall) -> dict[str, Any]:
         """Handle get_genres service call."""
@@ -280,7 +280,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             {}
         )
         genres = await coordinator.wait_for_response("genres")
-        return genres or {"categories": []}
+        return genres
 
     async def async_create_station_from_music_id(call: ServiceCall) -> None:
         """Handle create_station_from_music_id service call."""

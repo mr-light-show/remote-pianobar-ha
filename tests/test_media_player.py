@@ -323,6 +323,7 @@ async def test_media_player_extra_state_attributes_no_song(
     assert attrs["song_station_name"] == ""
     assert attrs["pandora_connected"] is True
     assert attrs["player_connected"] is True
+    assert attrs["player_busy"] is False
 
 
 async def test_media_player_extra_state_attributes_with_song(
@@ -506,3 +507,17 @@ async def test_media_player_toggle_when_paused(
 
     mock_coordinator.send_action.assert_called_once_with("playback.play")
 
+
+
+async def test_media_player_exposes_player_busy(
+    hass: HomeAssistant,
+    mock_config_entry,
+    mock_coordinator,
+) -> None:
+    """The player_busy attribute mirrors the coordinator."""
+    mock_coordinator.data = {"stations": [], "pandora_connected": True}
+    mock_coordinator.player_busy = True
+
+    player = PianobarMediaPlayer(mock_coordinator, mock_config_entry)
+
+    assert player.extra_state_attributes["player_busy"] is True
