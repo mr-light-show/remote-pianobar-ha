@@ -127,7 +127,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     self._initial_process_event.wait(),
                     timeout=INITIAL_PROCESS_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.warning(
                     "No process event received within %ss after query; "
                     "entities may miss initial account/station data until next update",
@@ -136,7 +136,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
             self._notify_connection_changed()
             
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             _LOGGER.error("Timeout connecting to Pianobar")
             await self._async_cleanup_failed_connect()
             raise ConnectionError("Connection timeout") from err
@@ -180,7 +180,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("WebSocket closed")
                     break
                     
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - listener logs any failure, then falls through to reconnect
             _LOGGER.error("Error in WebSocket listener: %s", err)
         finally:
             if not self._is_closing:
@@ -200,7 +200,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     try:
                         if not self._ws.closed:
                             await self._ws.close()
-                    except Exception:
+                    except Exception:  # noqa: BLE001, S110 - best-effort close of a dead socket
                         pass
                     self._ws = None
                 self._reconnect_task = asyncio.create_task(self._reconnect())
@@ -214,7 +214,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 await self.async_connect()
                 _LOGGER.info("Reconnected to Pianobar")
                 return
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - reconnect loop must survive any error
                 _LOGGER.warning(
                     "Reconnect failed, retrying in %s seconds: %s",
                     self._reconnect_delay,
@@ -281,7 +281,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             
         except json.JSONDecodeError as err:
             _LOGGER.error("Failed to parse message: %s", err)
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - one bad message must not kill the listener
             _LOGGER.error("Error handling message: %s", err)
 
     def _handle_process_event(self, payload: dict[str, Any]) -> None:
@@ -481,7 +481,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             message = f'2["{event_name}",{json.dumps(payload)}]'
             await self._ws.send_str(message)
             _LOGGER.debug("Sent event: %s", event_name)
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - sending is best-effort, errors are logged
             _LOGGER.error("Error sending event %s: %s", event_name, err)
 
     async def send_action(self, action: str) -> None:

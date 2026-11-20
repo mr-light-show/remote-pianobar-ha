@@ -4,13 +4,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 
 from .const import (
     DOMAIN,
@@ -22,6 +22,8 @@ from .const import (
     SERVICE_DELETE_FEEDBACK,
     SERVICE_DELETE_SEED,
     SERVICE_DELETE_STATION,
+    SERVICE_DISCONNECT,
+    SERVICE_DISCONNECT_PANDORA,
     SERVICE_EXPLAIN_SONG,
     SERVICE_GET_GENRES,
     SERVICE_GET_STATION_INFO,
@@ -29,8 +31,6 @@ from .const import (
     SERVICE_GET_UPCOMING,
     SERVICE_LOVE_SONG,
     SERVICE_RECONNECT,
-    SERVICE_DISCONNECT,
-    SERVICE_DISCONNECT_PANDORA,
     SERVICE_RENAME_STATION,
     SERVICE_RESET_VOLUME,
     SERVICE_SEARCH,
@@ -72,7 +72,7 @@ def _get_coordinator_from_call(
                 return coordinator
     
     # Fallback: use first available instance
-    if DOMAIN in hass.data and hass.data[DOMAIN]:
+    if hass.data.get(DOMAIN):
         entry_ids = list(hass.data[DOMAIN].keys())
         if entry_ids:
             return hass.data[DOMAIN][entry_ids[0]]
@@ -145,7 +145,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             try:
                 await coordinator.async_connect()
                 _LOGGER.info("Reconnected to Pianobar")
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - any failure must be logged, not crash the service
                 _LOGGER.error("Failed to reconnect: %s", err)
         else:
             _LOGGER.info("Already connected to Pianobar")
