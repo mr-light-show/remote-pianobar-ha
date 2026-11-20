@@ -7,7 +7,6 @@ from typing import Any
 
 import aiohttp
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
@@ -47,7 +46,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
                     # Connection successful, close it
                     await ws.close()
                     
-    except asyncio.TimeoutError as err:
+    except TimeoutError as err:
         raise CannotConnect("Connection timeout") from err
     except aiohttp.ClientError as err:
         raise CannotConnect(f"Connection failed: {err}") from err

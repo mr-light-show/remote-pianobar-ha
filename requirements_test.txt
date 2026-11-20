@@ -3,3 +3,7 @@
 # This package pulls in all required pytest dependencies with correct versions
 pytest-homeassistant-custom-component>=0.12.0
 
+
+# Some runners lack the system tz database (US/Pacific lives in tzdata-legacy);
+# the HA test plugin sets that zone, so ship our own copy.
+tzdata

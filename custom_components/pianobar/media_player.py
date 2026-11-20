@@ -1,8 +1,8 @@
 """Media player platform for Pianobar."""
 from __future__ import annotations
 
-from datetime import datetime
 import logging
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.media_player import (
@@ -207,7 +207,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
             return
         try:
             await self.coordinator.async_connect()
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - log any connect failure instead of crashing
             _LOGGER.error("Failed to connect to Pianobar: %s", err)
 
     async def async_turn_off(self) -> None:
@@ -271,7 +271,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         if not self.coordinator.is_connected:
             try:
                 await self.coordinator.async_connect()
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - log any connect failure instead of crashing
                 _LOGGER.error("Failed to connect to Pianobar: %s", err)
                 return
 
