@@ -1087,3 +1087,46 @@ async def test_service_response_propagates_error(
             )
 
         assert err.value.translation_key == "player_no_response"
+
+
+@pytest.mark.parametrize(
+    ("count", "allowed"), [(170, True), (185, True), (186, False), (250, False)]
+)
+async def test_service_set_quick_mix_size_limit(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    count: int,
+    allowed: bool,
+) -> None:
+    """QuickMix lists that do not fit in one player request are refused up front."""
+    from custom_components.pianobar.coordinator import PianobarCoordinator
+
+    mock_config_entry.add_to_hass(hass)
+    ids = [str(10**18 + i) for i in range(count)]  # 19-digit Pandora station ids
+
+    with patch(
+        "custom_components.pianobar.PianobarCoordinator"
+    ) as mock_coordinator_class:
+        mock_coordinator = mock_coordinator_class.return_value
+        mock_coordinator.async_connect = AsyncMock()
+        mock_coordinator.send_event = AsyncMock()
+        mock_coordinator.encode_event = PianobarCoordinator.encode_event
+        mock_coordinator.data = {"playing": False}
+
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        call = hass.services.async_call(
+            DOMAIN, SERVICE_SET_QUICK_MIX, {"station_ids": ids}, blocking=True
+        )
+        if allowed:
+            await call
+            mock_coordinator.send_event.assert_called_once_with(
+                "station.setQuickMix", ids
+            )
+        else:
+            with pytest.raises(ServiceValidationError) as err:
+                await call
+            assert err.value.translation_key == "quick_mix_too_large"
+            assert err.value.translation_placeholders == {"count": str(count)}
+            mock_coordinator.send_event.assert_not_called()

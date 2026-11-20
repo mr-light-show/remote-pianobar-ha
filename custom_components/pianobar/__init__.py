@@ -39,6 +39,7 @@ from .const import (
     SERVICE_SWITCH_ACCOUNT,
     SERVICE_TIRED_OF_SONG,
     SERVICE_TOGGLE_PLAYBACK,
+    WS_MAX_REQUEST_BYTES,
 )
 from .coordinator import PianobarCoordinator
 
@@ -178,6 +179,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         """Handle set_quick_mix service call."""
         coordinator = _get_coordinator_from_call(hass, call)
         station_ids = call.data.get("station_ids", [])
+        # setQuickMix replaces the whole set, so it cannot be split up
+        frame = coordinator.encode_event("station.setQuickMix", station_ids)
+        if len(frame.encode()) > WS_MAX_REQUEST_BYTES:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="quick_mix_too_large",
+                translation_placeholders={"count": str(len(station_ids))},
+            )
         await coordinator.send_event("station.setQuickMix", station_ids)
 
     async def async_add_seed(call: ServiceCall) -> None:

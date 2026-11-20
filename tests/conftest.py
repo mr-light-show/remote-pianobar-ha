@@ -53,6 +53,8 @@ def mock_coordinator(mock_websocket):
         coordinator.send_action_with_params = AsyncMock()
         coordinator._ws = mock_websocket
         coordinator.player_busy = False
+        coordinator.player_available = True
+        coordinator.last_update_success = True
         coordinator.data = {
             "playing": False,
             "paused": False,

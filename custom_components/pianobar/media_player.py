@@ -23,6 +23,9 @@ from .coordinator import PianobarCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Wait for the station list requested when a station is not found
+STATIONS_REFRESH_TIMEOUT = 5.0
+
 SUPPORTED_FEATURES = (
     MediaPlayerEntityFeature.PAUSE
     | MediaPlayerEntityFeature.PLAY
@@ -66,6 +69,11 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
             "manufacturer": "Pianobar",
             "model": "Remote Pianobar",
         }
+
+    @property
+    def available(self) -> bool:
+        """Unavailable once a dropped connection outlasts the grace period."""
+        return super().available and self.coordinator.player_available
 
     @property
     def state(self) -> MediaPlayerState:
@@ -285,6 +293,7 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         # Station not found - refresh and retry
         _LOGGER.warning("Station '%s' not found, refreshing station list", station_id_or_name)
         await self.coordinator.send_event("query.stations", None)
+        await self.coordinator.async_wait_for_stations(STATIONS_REFRESH_TIMEOUT)
         station = self._find_station(station_id_or_name)
         if station:
             await self.coordinator.send_event("station.change", station["id"])

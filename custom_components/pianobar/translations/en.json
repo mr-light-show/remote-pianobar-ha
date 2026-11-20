@@ -69,6 +69,12 @@
     },
     "player_busy": {
       "message": "The player is busy. Try again in a moment."
+    },
+    "request_too_large": {
+      "message": "The request is too large and was ignored."
+    },
+    "quick_mix_too_large": {
+      "message": "Too many stations for QuickMix ({count}). Select fewer stations."
     }
   },
   "services": {

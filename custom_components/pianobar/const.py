@@ -13,6 +13,20 @@ DEFAULT_NAME = "Pianobar"
 WS_CONNECT_TIMEOUT = 10
 WS_RECONNECT_DELAY = 5
 WS_MAX_RECONNECT_DELAY = 300
+# aiohttp pings every WS_HEARTBEAT seconds and drops the connection when no
+# pong arrives within half of it (30 s)
+WS_HEARTBEAT = 60
+# After a dropped connection, keep the last state this long while reconnecting
+# (reconnect attempts start after WS_RECONNECT_DELAY), then go unavailable
+RECONNECT_GRACE_PERIOD = 30.0
+# Largest request the player accepts: remote-pianobar WS_CMD_MAX_REQUEST_BYTES
+# (src/bar_constants.h, = LWS_RX_BUFFER_SIZE). It counts the whole WebSocket
+# text message (the `2[...]` frame, UTF-8 bytes, inclusive); a longer one is
+# dropped by the player.
+WS_MAX_REQUEST_BYTES = 4096
+# Re-send `query` (unicast) after these delays while no `stations` event has
+# arrived on a connection; the player sends the list only in reply to a query
+STATIONS_RETRY_DELAYS: tuple[float, ...] = (10.0, 30.0, 60.0)
 # Wait for first `process` after `query` so coordinator.data is populated before platforms load
 INITIAL_PROCESS_TIMEOUT = 30.0
 # Wait for a reply to a request. The player queues requests fairly per client,
