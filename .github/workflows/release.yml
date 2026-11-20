@@ -24,5 +24,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          # v3.0.0-dev.N tags are prereleases: HACS only offers them to users who
+          # opted in to beta versions
+          prerelease: ${{ contains(github.ref_name, '-dev') }}
           generate_release_notes: true
 
