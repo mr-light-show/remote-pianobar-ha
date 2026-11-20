@@ -68,6 +68,11 @@ class PianobarMediaPlayer(CoordinatorEntity[PianobarCoordinator], MediaPlayerEnt
         }
 
     @property
+    def available(self) -> bool:
+        """Unavailable once a dropped connection outlasts the grace period."""
+        return super().available and self.coordinator.player_available
+
+    @property
     def state(self) -> MediaPlayerState:
         """Return the state of the player."""
         # OFF when no station selected (stopped/disconnected)

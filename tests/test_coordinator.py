@@ -16,7 +16,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.pianobar.const import BUSY_WINDOW, DOMAIN
+from custom_components.pianobar.const import (
+    BUSY_WINDOW,
+    DOMAIN,
+    RECONNECT_GRACE_PERIOD,
+    WS_HEARTBEAT,
+)
 from custom_components.pianobar.coordinator import PianobarCoordinator
 
 
@@ -901,3 +906,227 @@ async def test_handle_message_payloadless_event_ignored(
 
     assert coordinator.data == before
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+class _EmptyAsyncIter:
+    """Async iterator that ends at once: the connection dropped."""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+async def _drop_connection(coordinator: PianobarCoordinator) -> None:
+    """Run the _listen finally path for a connection the player closed."""
+    ws = _open_ws()
+    ws.__aiter__ = MagicMock(return_value=_EmptyAsyncIter())
+    coordinator._ws = ws
+    with patch.object(coordinator, "_reconnect", new=AsyncMock()):
+        await coordinator._listen()
+        await asyncio.sleep(0)
+
+
+PROCESS_FRAME = (
+    '2["process",{"playing":true,"paused":false,"volume":50,'
+    '"station":"Jazz","stationId":"j1"}]'
+)
+
+
+def _playing_coordinator(hass: HomeAssistant) -> PianobarCoordinator:
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator.data.update(
+        {"station": "Rock", "stationId": "r1", "playing": True, "song": {"title": "T"}}
+    )
+    return coordinator
+
+
+async def test_connection_loss_holds_state_during_grace(hass: HomeAssistant) -> None:
+    """A dropped connection keeps the last state and stays available."""
+    coordinator = _playing_coordinator(hass)
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    await _drop_connection(coordinator)
+
+    assert coordinator.is_connected is False
+    assert coordinator.player_available is True
+    assert coordinator.data["station"] == "Rock"
+    assert coordinator.data["playing"] is True
+    assert coordinator._grace_unsub is not None
+    listener.assert_called()
+    unsub_listener()
+    await coordinator.async_disconnect()
+
+
+async def test_grace_expiry_marks_unavailable_and_clears(hass: HomeAssistant) -> None:
+    """After the grace period without a reconnect the player is unavailable."""
+    coordinator = _playing_coordinator(hass)
+    await _drop_connection(coordinator)
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RECONNECT_GRACE_PERIOD + 1)
+    )
+    await hass.async_block_till_done()
+
+    assert coordinator.player_available is False
+    assert coordinator.data["station"] is None
+    assert "song" not in coordinator.data
+    assert coordinator._grace_unsub is None
+    listener.assert_called_once()
+    unsub_listener()
+    await coordinator.async_disconnect()
+
+
+async def test_grace_expiry_ends_busy_episode(hass: HomeAssistant) -> None:
+    """A busy flag from the lost connection does not outlive the grace period."""
+    coordinator = _playing_coordinator(hass)
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(BUSY_FRAME)
+    await _drop_connection(coordinator)
+    assert coordinator.player_busy is True  # a drop alone does not clear it
+
+    # Renew the busy window so it outlasts the grace period
+    with patch("custom_components.pianobar.coordinator.BUSY_WINDOW", 120):
+        coordinator._handle_busy()
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RECONNECT_GRACE_PERIOD + 1)
+    )
+    await hass.async_block_till_done()
+
+    assert coordinator.player_available is False
+    assert coordinator.player_busy is False
+    assert coordinator._busy_unsub is None
+
+
+async def test_reconnect_within_grace_keeps_state(hass: HomeAssistant) -> None:
+    """The first process on the new connection ends the grace period."""
+    coordinator = _playing_coordinator(hass)
+    await _drop_connection(coordinator)
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(PROCESS_FRAME)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RECONNECT_GRACE_PERIOD + 1)
+    )
+    await hass.async_block_till_done()
+
+    assert coordinator._grace_unsub is None
+    assert coordinator.player_available is True
+    assert coordinator.data["station"] == "Jazz"
+    await coordinator.async_disconnect()
+
+
+async def test_reconnect_after_grace_restores_availability(hass: HomeAssistant) -> None:
+    """A process after the grace period expired makes the player available again."""
+    coordinator = _playing_coordinator(hass)
+    await _drop_connection(coordinator)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RECONNECT_GRACE_PERIOD + 1)
+    )
+    await hass.async_block_till_done()
+    assert coordinator.player_available is False
+
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(PROCESS_FRAME)
+
+    assert coordinator.player_available is True
+    assert coordinator.data["station"] == "Jazz"
+    await coordinator.async_disconnect()
+
+
+async def test_process_without_grace_keeps_busy(hass: HomeAssistant) -> None:
+    """A broadcast process on a healthy connection does not end a busy episode."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(BUSY_FRAME)
+
+    await coordinator._handle_message(PROCESS_FRAME)
+
+    assert coordinator.player_busy is True
+    await coordinator.async_disconnect()
+
+
+async def test_repeated_handshake_then_drop_goes_unavailable(hass: HomeAssistant) -> None:
+    """Connections that close before any process do not extend the grace period."""
+    coordinator = _playing_coordinator(hass)
+    await _drop_connection(coordinator)
+    first_unsub = coordinator._grace_unsub
+
+    for _ in range(3):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=5))
+        await _drop_connection(coordinator)
+    assert coordinator._grace_unsub is first_unsub
+
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RECONNECT_GRACE_PERIOD + 1)
+    )
+    await hass.async_block_till_done()
+    assert coordinator.player_available is False
+    await coordinator.async_disconnect()
+
+
+async def test_user_disconnect_cancels_grace(hass: HomeAssistant) -> None:
+    """A user disconnect shows off (cleared) and available, with no timer left."""
+    coordinator = _playing_coordinator(hass)
+    await _drop_connection(coordinator)
+
+    await coordinator.async_disconnect()
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RECONNECT_GRACE_PERIOD + 1)
+    )
+    await hass.async_block_till_done()
+
+    assert coordinator._grace_unsub is None
+    assert coordinator.player_available is True
+    assert not coordinator.data["station"]
+    assert coordinator.data["playing"] is False
+
+
+async def test_user_disconnect_after_grace_expiry_is_available(
+    hass: HomeAssistant,
+) -> None:
+    """turn_off after the player went unavailable makes it available (off) again."""
+    coordinator = _playing_coordinator(hass)
+    await _drop_connection(coordinator)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=RECONNECT_GRACE_PERIOD + 1)
+    )
+    await hass.async_block_till_done()
+
+    await coordinator.async_disconnect()
+
+    assert coordinator.player_available is True
+
+
+async def test_connect_uses_heartbeat_constant(hass: HomeAssistant) -> None:
+    """ws_connect gets WS_HEARTBEAT; a connect without process still ends grace."""
+    coordinator = _playing_coordinator(hass)
+    await _drop_connection(coordinator)
+    assert coordinator._grace_unsub is not None
+
+    mock_ws = _open_ws()
+    mock_session = MagicMock()
+    mock_session.closed = False
+    mock_session.close = AsyncMock()
+    mock_session.ws_connect = AsyncMock(return_value=mock_ws)
+
+    async def fake_listen() -> None:
+        await asyncio.sleep(1.0)
+
+    with patch(
+        "custom_components.pianobar.coordinator.aiohttp.ClientSession",
+        return_value=mock_session,
+    ), patch.object(coordinator, "_listen", new=fake_listen), patch(
+        "custom_components.pianobar.coordinator.INITIAL_PROCESS_TIMEOUT", 0.01
+    ):
+        await coordinator.async_connect()
+
+    assert mock_session.ws_connect.call_args.kwargs["heartbeat"] == WS_HEARTBEAT
+    assert coordinator._grace_unsub is None
+    assert coordinator.player_available is True
+    await coordinator.async_disconnect()

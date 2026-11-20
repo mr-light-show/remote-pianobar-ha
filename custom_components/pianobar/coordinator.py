@@ -21,8 +21,10 @@ from .const import (
     DOMAIN,
     INITIAL_PROCESS_TIMEOUT,
     OPERATION_RESPONSE_KEYS,
+    RECONNECT_GRACE_PERIOD,
     RESPONSE_TIMEOUT,
     WS_CONNECT_TIMEOUT,
+    WS_HEARTBEAT,
     WS_MAX_RECONNECT_DELAY,
     WS_RECONNECT_DELAY,
 )
@@ -77,6 +79,19 @@ class PianobarCoordinator(DataUpdateCoordinator):
         # Busy episode: loop time of its first notice, and the timer ending it
         self._busy_since: float | None = None
         self._busy_unsub: CALLBACK_TYPE | None = None
+        # Reconnect grace period: timer running after a dropped connection,
+        # and whether it ended without a reconnect
+        self._grace_unsub: CALLBACK_TYPE | None = None
+        self._grace_expired = False
+
+    @property
+    def player_available(self) -> bool:
+        """Return False once a dropped connection outlasted the grace period.
+
+        True while connected, while reconnecting within the grace period, and
+        after a user disconnect (so turn_on still works).
+        """
+        return not self._grace_expired
 
     @property
     def player_busy(self) -> bool:
@@ -133,7 +148,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
                 self._session.ws_connect(
                     url,
                     protocols=["socketio"],
-                    heartbeat=30,
+                    heartbeat=WS_HEARTBEAT,
                 ),
                 timeout=WS_CONNECT_TIMEOUT,
             )
@@ -160,6 +175,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
                     INITIAL_PROCESS_TIMEOUT,
                 )
 
+            if self.is_connected:
+                self._end_grace()
             self._notify_connection_changed()
             
         except TimeoutError as err:
@@ -184,8 +201,35 @@ class PianobarCoordinator(DataUpdateCoordinator):
             self._reconnect_task = None
 
         await self._async_release_connection()
+        self._cancel_grace()
+        self._grace_expired = False
         self._clear_busy()
+        # Show `off` rather than the state from before the disconnect
+        self._clear_playback_state()
         self._notify_connection_changed()
+
+    def _cancel_grace(self) -> None:
+        """Stop the reconnect grace timer if it is running."""
+        if self._grace_unsub is not None:
+            self._grace_unsub()
+            self._grace_unsub = None
+
+    def _end_grace(self) -> None:
+        """The connection is back: stop the grace period, drop stale busy state."""
+        if self._grace_unsub is None and not self._grace_expired:
+            return
+        self._cancel_grace()
+        self._grace_expired = False
+        self._clear_busy()
+
+    @callback
+    def _async_grace_expired(self, _now: datetime) -> None:
+        """No reconnect within the grace period: clear state, go unavailable."""
+        self._grace_unsub = None
+        self._grace_expired = True
+        self._clear_playback_state()
+        self._clear_busy()
+        self.async_set_updated_data(self.data)
 
     def _notify_connection_changed(self) -> None:
         """Refresh entities when WebSocket connection state changes."""
@@ -212,8 +256,13 @@ class PianobarCoordinator(DataUpdateCoordinator):
         finally:
             if not self._is_closing:
                 _LOGGER.warning("WebSocket connection lost, attempting to reconnect")
-                # Clear playback state on connection loss so player cards reset
-                self._clear_playback_state()
+                # Hold the last state while reconnecting; go unavailable only if
+                # the grace period ends first. A connection that closes again
+                # before its first `process` does not restart the period.
+                if self._grace_unsub is None and not self._grace_expired:
+                    self._grace_unsub = async_call_later(
+                        self.hass, RECONNECT_GRACE_PERIOD, self._async_grace_expired
+                    )
                 self.async_set_updated_data(self.data)
                 # Drop stale reconnect loop if still running; release dead socket before retry.
                 if self._reconnect_task and not self._reconnect_task.done():
@@ -348,6 +397,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
         if "current_account" in payload:
             self.data["current_account"] = payload["current_account"]
 
+        # The first `process` on a new connection ends a reconnect grace period
+        self._end_grace()
         self._initial_process_event.set()
 
     def _handle_start_event(self, payload: dict[str, Any]) -> None:

@@ -13,6 +13,12 @@ DEFAULT_NAME = "Pianobar"
 WS_CONNECT_TIMEOUT = 10
 WS_RECONNECT_DELAY = 5
 WS_MAX_RECONNECT_DELAY = 300
+# aiohttp pings every WS_HEARTBEAT seconds and drops the connection when no
+# pong arrives within half of it (30 s)
+WS_HEARTBEAT = 60
+# After a dropped connection, keep the last state this long while reconnecting
+# (reconnect attempts start after WS_RECONNECT_DELAY), then go unavailable
+RECONNECT_GRACE_PERIOD = 30.0
 # Wait for first `process` after `query` so coordinator.data is populated before platforms load
 INITIAL_PROCESS_TIMEOUT = 30.0
 # Wait for a reply to a request. The player queues requests fairly per client,
