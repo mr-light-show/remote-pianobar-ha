@@ -22,6 +22,7 @@ from custom_components.pianobar.const import (
     RECONNECT_GRACE_PERIOD,
     STATIONS_RETRY_DELAYS,
     WS_HEARTBEAT,
+    WS_MAX_REQUEST_BYTES,
 )
 from custom_components.pianobar.coordinator import PianobarCoordinator
 
@@ -292,8 +293,7 @@ async def test_send_event(hass: HomeAssistant) -> None:
     
     mock_ws.send_str.assert_called_once()
     call_args = mock_ws.send_str.call_args[0][0]
-    assert call_args.startswith('2["test_event"')
-    assert '"key":"value"' in call_args or '"key": "value"' in call_args
+    assert call_args == '2["test_event",{"key":"value"}]'
 
 
 async def test_send_action(hass: HomeAssistant) -> None:
@@ -1297,3 +1297,41 @@ async def test_wait_for_stations(hass: HomeAssistant) -> None:
     await coordinator._handle_message(STATIONS_FRAME)
     assert await asyncio.wait_for(task, timeout=1) is True
     assert coordinator._stations_waiters == []
+
+
+def test_encode_event_is_compact() -> None:
+    """Frames use compact JSON: one byte less per element than the default."""
+    assert (
+        PianobarCoordinator.encode_event("station.setQuickMix", ["1", "2"])
+        == '2["station.setQuickMix",["1","2"]]'
+    )
+    assert PianobarCoordinator.encode_event("query", None) == '2["query",null]'
+
+
+async def test_send_event_refuses_oversize(hass: HomeAssistant) -> None:
+    """A frame the player would drop is refused before it is sent."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    ids = [str(10**18 + i) for i in range(300)]
+
+    with pytest.raises(HomeAssistantError) as err:
+        await coordinator.send_event("station.setQuickMix", ids)
+
+    assert err.value.translation_key == "request_too_large"
+    assert err.value.translation_placeholders in (None, {})
+    coordinator._ws.send_str.assert_not_called()
+
+
+async def test_send_event_accepts_frame_at_limit(hass: HomeAssistant) -> None:
+    """The limit is inclusive: a frame of exactly WS_MAX_REQUEST_BYTES is sent."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    overhead = len(PianobarCoordinator.encode_event("x", ""))
+    text = "a" * (WS_MAX_REQUEST_BYTES - overhead)
+    assert len(PianobarCoordinator.encode_event("x", text).encode()) == WS_MAX_REQUEST_BYTES
+
+    await coordinator.send_event("x", text)
+    coordinator._ws.send_str.assert_called_once()
+
+    with pytest.raises(HomeAssistantError):
+        await coordinator.send_event("x", text + "a")

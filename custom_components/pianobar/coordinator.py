@@ -27,6 +27,7 @@ from .const import (
     WS_CONNECT_TIMEOUT,
     WS_HEARTBEAT,
     WS_MAX_RECONNECT_DELAY,
+    WS_MAX_REQUEST_BYTES,
     WS_RECONNECT_DELAY,
 )
 
@@ -701,15 +702,33 @@ class PianobarCoordinator(DataUpdateCoordinator):
             translation_key="player_busy" if self.player_busy else "player_no_response",
         )
 
+    @staticmethod
+    def encode_event(event_name: str, payload: Any) -> str:
+        """Return the Socket.IO EVENT frame, as compact JSON."""
+        return f'2["{event_name}",{json.dumps(payload, separators=(",", ":"))}]'
+
     async def send_event(self, event_name: str, payload: Any) -> None:
-        """Send an event to the WebSocket."""
+        """Send an event to the WebSocket.
+
+        Raises a translated HomeAssistantError for a frame larger than the
+        player accepts, which it would drop.
+        """
         if not self._ws or self._ws.closed:
             _LOGGER.error("WebSocket not connected")
             return
-            
+
+        message = self.encode_event(event_name, payload)
+        if len(message.encode()) > WS_MAX_REQUEST_BYTES:
+            _LOGGER.error(
+                "Not sending %s: %s bytes is more than the player accepts (%s)",
+                event_name,
+                len(message.encode()),
+                WS_MAX_REQUEST_BYTES,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="request_too_large"
+            )
         try:
-            # Format as Socket.IO EVENT message
-            message = f'2["{event_name}",{json.dumps(payload)}]'
             await self._ws.send_str(message)
             _LOGGER.debug("Sent event: %s", event_name)
         except Exception as err:  # noqa: BLE001 - sending is best-effort, errors are logged
