@@ -22,6 +22,7 @@ from .const import (
     INITIAL_PROCESS_TIMEOUT,
     OPERATION_RESPONSE_KEYS,
     RECONNECT_GRACE_PERIOD,
+    REQUEST_TOO_LARGE_OPERATION,
     RESPONSE_TIMEOUT,
     STATIONS_RETRY_DELAYS,
     WS_CONNECT_TIMEOUT,
@@ -614,6 +615,17 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
         if operation == BUSY_OPERATION:
             self._handle_busy()
+            return
+        if operation == REQUEST_TOO_LARGE_OPERATION:
+            # send_event refuses oversize frames first, so this is unexpected
+            _LOGGER.warning(
+                "Player %s:%s dropped a request as too large: %s",
+                self.host,
+                self.port,
+                message,
+            )
+            for key in self._pending_waits:
+                self._response_data[key] = _ResponseFailure("request_too_large")
             return
         
         # Play/reconnect failed: revert playing state so UI shows Play again

@@ -521,6 +521,49 @@ async def test_station_info_too_large_fails_fast(hass: HomeAssistant) -> None:
     }
 
 
+REQUEST_TOO_LARGE_FRAME = (
+    '2["error",{"operation":"request",'
+    '"message":"The request is too large and was ignored."}]'
+)
+
+
+async def test_request_too_large_error_fails_pending_waits(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The player dropped one of our requests for size: fail every wait at once."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    info = asyncio.create_task(coordinator.wait_for_response("station_info", timeout=5))
+    genres = asyncio.create_task(coordinator.wait_for_response("genres", timeout=5))
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await coordinator._handle_message(REQUEST_TOO_LARGE_FRAME)
+
+    for task in (info, genres):
+        with pytest.raises(HomeAssistantError) as err:
+            await asyncio.wait_for(task, timeout=1)
+        assert err.value.translation_domain == DOMAIN
+        assert err.value.translation_key == "request_too_large"
+    assert "too large" in caplog.text
+    # Not a busy episode
+    assert coordinator.player_busy is False
+
+
+async def test_request_too_large_without_waiter_leaves_no_reply(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With nothing waiting, the error is only logged and cannot fail a later wait."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    with caplog.at_level(logging.WARNING):
+        await coordinator._handle_message(REQUEST_TOO_LARGE_FRAME)
+
+    assert coordinator._response_data == {}
+    assert "too large" in caplog.text
+
+
 BUSY_FRAME = (
     '2["error",{"operation":"command",'
     '"message":"The player is busy. Try again in a moment."}]'
