@@ -6,13 +6,17 @@ import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from datetime import timedelta
+
 import aiohttp
 import pytest
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from custom_components.pianobar.const import DOMAIN
+from custom_components.pianobar.const import BUSY_WINDOW, DOMAIN
 from custom_components.pianobar.coordinator import PianobarCoordinator
 
 
@@ -421,6 +425,7 @@ def _open_ws() -> MagicMock:
     ws = MagicMock()
     ws.closed = False
     ws.send_str = AsyncMock()
+    ws.close = AsyncMock()
     return ws
 
 
@@ -508,6 +513,118 @@ async def test_station_info_too_large_fails_fast(hass: HomeAssistant) -> None:
     assert err.value.translation_placeholders == {
         "message": "The response is too large to send."
     }
+
+
+BUSY_FRAME = (
+    '2["error",{"operation":"command",'
+    '"message":"The player is busy. Try again in a moment."}]'
+)
+
+
+async def test_busy_fails_all_pending_waits(hass: HomeAssistant) -> None:
+    """One busy notice fails every reply HA is waiting for."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+
+    info = asyncio.create_task(coordinator.wait_for_response("station_info", timeout=5))
+    genres = asyncio.create_task(coordinator.wait_for_response("genres", timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message(BUSY_FRAME)
+
+    for task in (info, genres):
+        with pytest.raises(HomeAssistantError) as err:
+            await asyncio.wait_for(task, timeout=1)
+        assert err.value.translation_key == "player_busy"
+    assert coordinator.player_busy is True
+
+    await coordinator.async_disconnect()
+    assert coordinator.player_busy is False
+
+
+async def test_wait_timeout_reports_busy_within_window(hass: HomeAssistant) -> None:
+    """The player sends one notice per episode: later timeouts report busy too."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(BUSY_FRAME)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await coordinator.wait_for_response("genres", timeout=0.1)
+
+    assert err.value.translation_key == "player_busy"
+    await coordinator.async_disconnect()
+
+
+async def test_reply_clears_busy(hass: HomeAssistant) -> None:
+    """A reply means the player accepted a request again."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    coordinator._ws = _open_ws()
+    await coordinator._handle_message(BUSY_FRAME)
+    assert coordinator.player_busy is True
+
+    task = asyncio.create_task(coordinator.wait_for_response("genres", timeout=5))
+    await asyncio.sleep(0)
+    await coordinator._handle_message('2["genres",{"categories":[]}]')
+
+    assert await asyncio.wait_for(task, timeout=1) == {"categories": []}
+    assert coordinator.player_busy is False
+    assert coordinator._busy_unsub is None
+
+
+async def test_busy_without_waiter_sets_attribute_once(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Repeated notices in one episode log one warning and keep the episode start."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.pianobar.coordinator"):
+        await coordinator._handle_message(BUSY_FRAME)
+        started = coordinator._busy_since
+        await coordinator._handle_message(BUSY_FRAME)
+
+    assert coordinator.player_busy is True
+    assert coordinator._busy_since == started
+    assert listener.call_count == 2  # once per received frame, as for every event
+    busy_records = [r for r in caplog.records if "busy" in r.getMessage()]
+    assert len(busy_records) == 1
+    assert busy_records[0].levelno == logging.WARNING
+
+    unsub_listener()
+    await coordinator.async_disconnect()
+
+
+async def test_busy_window_expiry_clears_attribute(hass: HomeAssistant) -> None:
+    """Without a reply, the busy flag clears after BUSY_WINDOW and listeners hear it."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    await coordinator._handle_message(BUSY_FRAME)
+    listener = MagicMock()
+    unsub_listener = coordinator.async_add_listener(listener)
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=BUSY_WINDOW - 5))
+    await hass.async_block_till_done()
+    assert coordinator.player_busy is True
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=BUSY_WINDOW + 1))
+    await hass.async_block_till_done()
+
+    assert coordinator.player_busy is False
+    assert coordinator._busy_unsub is None
+    listener.assert_called_once()
+    unsub_listener()
+
+
+async def test_repeated_busy_notice_restarts_window(hass: HomeAssistant) -> None:
+    """A new notice while busy restarts the window instead of stacking timers."""
+    coordinator = PianobarCoordinator(hass, "127.0.0.1", 3000)
+    await coordinator._handle_message(BUSY_FRAME)
+    first_unsub = coordinator._busy_unsub
+    await coordinator._handle_message(BUSY_FRAME)
+
+    assert coordinator._busy_unsub is not first_unsub
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=BUSY_WINDOW + 1))
+    await hass.async_block_till_done()
+    assert coordinator.player_busy is False
 
 
 async def test_unrelated_operation_error_without_waiter_is_ignored(

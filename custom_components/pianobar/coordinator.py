@@ -5,15 +5,19 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import aiohttp
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BUSY_OPERATION,
+    BUSY_WINDOW,
     DOMAIN,
     INITIAL_PROCESS_TIMEOUT,
     OPERATION_RESPONSE_KEYS,
@@ -70,6 +74,14 @@ class PianobarCoordinator(DataUpdateCoordinator):
         self._response_data: dict[str, Any] = {}
         # Response keys a service is currently waiting for
         self._pending_waits: set[str] = set()
+        # Busy episode: loop time of its first notice, and the timer ending it
+        self._busy_since: float | None = None
+        self._busy_unsub: CALLBACK_TYPE | None = None
+
+    @property
+    def player_busy(self) -> bool:
+        """Return True while the player is refusing requests as busy."""
+        return self._busy_since is not None
 
     @property
     def is_connected(self) -> bool:
@@ -172,6 +184,7 @@ class PianobarCoordinator(DataUpdateCoordinator):
             self._reconnect_task = None
 
         await self._async_release_connection()
+        self._clear_busy()
         self._notify_connection_changed()
 
     def _notify_connection_changed(self) -> None:
@@ -401,32 +414,75 @@ class PianobarCoordinator(DataUpdateCoordinator):
 
     def _handle_song_explanation_event(self, payload: dict[str, Any]) -> None:
         """Handle song.explanation event (song recommendation explanation)."""
-        self._response_data["song_explanation"] = payload.get("explanation", "")
+        self._set_response("song_explanation", payload.get("explanation", ""))
 
     def _handle_upcoming_result_event(self, payload: list[dict[str, Any]]) -> None:
         """Handle query.upcoming.result event (upcoming songs)."""
-        self._response_data["upcoming"] = payload
+        self._set_response("upcoming", payload)
 
     def _handle_station_info_event(self, payload: dict[str, Any]) -> None:
         """Handle stationInfo event (station seeds and feedback)."""
-        self._response_data["station_info"] = payload
+        self._set_response("station_info", payload)
 
     def _handle_station_modes_event(self, payload: dict[str, Any]) -> None:
         """Handle stationModes event (station playback modes)."""
-        self._response_data["station_modes"] = payload.get("modes", [])
+        self._set_response("station_modes", payload.get("modes", []))
 
     def _handle_search_results_event(self, payload: dict[str, Any]) -> None:
         """Handle searchResults event (music search results)."""
-        self._response_data["search_results"] = payload
+        self._set_response("search_results", payload)
 
     def _handle_genres_event(self, payload: dict[str, Any]) -> None:
         """Handle genres event (genre categories)."""
-        self._response_data["genres"] = payload
+        self._set_response("genres", payload)
+
+    def _set_response(self, key: str, value: Any) -> None:
+        """Store a reply. Replies go only to the requester, so a reply also
+        means the player accepted one of our requests: the busy episode is over.
+        """
+        self._response_data[key] = value
+        self._clear_busy()
+
+    def _clear_busy(self) -> None:
+        """End the busy episode (listeners are notified by the caller)."""
+        if self._busy_unsub is not None:
+            self._busy_unsub()
+            self._busy_unsub = None
+        self._busy_since = None
+
+    @callback
+    def _async_busy_expired(self, _now: datetime) -> None:
+        """End the busy episode after BUSY_WINDOW without a reply."""
+        self._busy_unsub = None
+        self._clear_busy()
+        self.async_set_updated_data(self.data)
+
+    def _handle_busy(self) -> None:
+        """The player refused a request because its command queue is full."""
+        if self._busy_since is None:
+            self._busy_since = self.hass.loop.time()
+            _LOGGER.warning(
+                "Player %s:%s refused a request: command queue busy",
+                self.host,
+                self.port,
+            )
+        for key in self._pending_waits:
+            self._response_data[key] = _ResponseFailure("player_busy")
+        # (Re)start the window; _handle_message notifies listeners
+        if self._busy_unsub is not None:
+            self._busy_unsub()
+        self._busy_unsub = async_call_later(
+            self.hass, BUSY_WINDOW, self._async_busy_expired
+        )
 
     def _handle_error_event(self, payload: dict[str, Any]) -> None:
         """Handle error event from backend."""
         operation = payload.get("operation", "")
         message = payload.get("message", "Unknown error")
+
+        if operation == BUSY_OPERATION:
+            self._handle_busy()
+            return
         
         # Play/reconnect failed: revert playing state so UI shows Play again
         if operation in ("playback.play", "app.pandora-reconnect"):
@@ -510,7 +566,8 @@ class PianobarCoordinator(DataUpdateCoordinator):
         finally:
             self._pending_waits.discard(key)
         raise HomeAssistantError(
-            translation_domain=DOMAIN, translation_key="player_no_response"
+            translation_domain=DOMAIN,
+            translation_key="player_busy" if self.player_busy else "player_no_response",
         )
 
     async def send_event(self, event_name: str, payload: Any) -> None:

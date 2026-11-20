@@ -25,6 +25,11 @@ OPERATION_RESPONSE_KEYS: dict[str, str] = {
     "music.search": "search_results",
     "station.getGenres": "genres",
 }
+# Player `error` operation for a request refused because its queue is full.
+# The player sends it once per episode, so timeouts within BUSY_WINDOW seconds
+# of the notice are reported as busy too.
+BUSY_OPERATION = "command"
+BUSY_WINDOW = 30.0
 
 # Services
 SERVICE_LOVE_SONG = "love_song"

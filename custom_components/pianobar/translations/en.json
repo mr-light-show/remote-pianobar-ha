@@ -66,6 +66,9 @@
     },
     "player_request_failed": {
       "message": "The player could not complete the request: {message}"
+    },
+    "player_busy": {
+      "message": "The player is busy. Try again in a moment."
     }
   },
   "services": {
